@@ -115,7 +115,8 @@
       <!--function:SkinElement skinfooter-->
       <div id="wikifoot-links" class="footnav">
         {% if site.disable_edit != true %}
-
+<a target="_blank" href="{{ site.github.repository_url }}/new/{{site.git_branch | escape}}?filename={{ site.site_root | default: '/' }}{{ site.wiki_folder }}/">Add
+            new</a>
         <a rel="nofollow" target="_blank"
           href="{{ site.github.repository_url }}/edit/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">$[Edit]</a>
         -
