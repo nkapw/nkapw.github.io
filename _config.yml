@@ -79,7 +79,7 @@ defaults:
       path: ""
       type: "pages"
     values:
-      layout: "git-wiki-default"
+      layout: "git-wiki-pm"
  -
     scope:
       path: ""
