@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html $HTMLTagAttr>
+<html>
 
 <head>
   <title>{{ title | strip_html | strip_newlines | truncate: 160 }}</title>
@@ -23,7 +23,7 @@
   <meta name="twitter:image" content="{{ site.logo_url | relative_url }}" />
   {% endif %}
 
-  <link rel="stylesheet" href="{{ 'skin.css?v=' | append: site.github.build_revision | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/github.css?v=' | append: site.github.build_revision | relative_url }}">
 <!-- <link rel="stylesheet" href="skin.css"> -->
   <!--HTMLHeader-->
 </head>
@@ -41,9 +41,9 @@
         <span id="wikilogo"><a href="{$ScriptUrl}"><img src="$PageLogoUrl" alt="$WikiTitle" /></a></span>
         <form id="wikihead-searchform" action="{$ScriptUrl}" method="get">
           <span class="headnav" id="wikihead-recent-changes-link">
-            <a href="{$ScriptUrl}/$[{$Group}/RecentChanges]" accesskey="$[ak_recentchanges]">$[Recent Changes]</a> -
+            <a href="{$ScriptUrl}/$[{$Group}/RecentChanges]" accesskey="$[ak_recentchanges]">Recent Changes</a> -
           </span>
-          <span id="wikihead-searchlink"><a href="{$ScriptUrl}/$[{$SiteGroup}/Search]">$[Search]</a>:</span>
+          <span id="wikihead-searchlink"><a href="{$ScriptUrl}/$[{$SiteGroup}/Search]">Search</a>:</span>
           <input type="hidden" name="n" value="{$FullName}" />
           <input type="hidden" name="action" value="search" />
           <input id="wikihead-searchquery" type="search" name="q" value="" class="inputbox searchbox"
@@ -96,7 +96,7 @@
           <!--PageTitleFmt-->
           <div id='wikititle'>
             <div class='pagegroup'><a href='{$ScriptUrl}/{$Group}'>{$Group}</a> /</div>
-            <h1 class='pagetitle'>{$Title}</h1>
+            <h1 class='pagetitle'>{{ site.title | escape }}</h1>
           </div>
           <!--/PageTitleFmt-->
           {% include git-wiki/components/toc/toc-lib.html title="Contents:" minHeaders=1 html=content sanitize=true class="inline_toc" id="git-wiki-toc" h_min=1 h_max=3 ordered=1 %}
