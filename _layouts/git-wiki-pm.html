@@ -126,6 +126,7 @@
         <a target="_blank"
           href="{{ site.github.repository_url }}/delete/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">Delete</a>
         {% endif %}
+        {% endif %}
         <a rel="nofollow" href="{{ site.github.repository_url }}/commits/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">$[History]</a> -
         <a target="_blank" href="{{ site.github.repository_url }}/blob/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">Source</a>
         <a rel="nofollow" href="{$PageUrl}?action=print" target="_blank">$[Print]</a> -
