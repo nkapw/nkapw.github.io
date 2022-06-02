@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html $HTMLTagAttr>
+
+<head>
+  <title>{{ title | strip_html | strip_newlines | truncate: 160 }}</title>
+  <!-- Skin Copyright 2016 Petko Yotov www.pmwiki.org/petko ; Skin License GNU GPLv2+ -->
+  <meta property="og:title" content="{{ title | strip_html | strip_newlines | truncate: 160 }}">
+
+  <meta property="og:description" content="{% if page.excerpt %}
+          {{ page.excerpt | strip_html | strip_newlines | truncate: 160 }}
+        {% else %}
+          {{ site.description }}
+        {% endif %}">
+
+
+  <meta property="og:url"
+    content="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}" />
+  {% if page.image %}
+  <meta property="og:image" content="{{page.image}}" />
+  <meta name="twitter:image" content="{{page.image}}" />
+  {% elsif site.logo_url %}
+  <meta property="og:image" content="{{ site.logo_url | relative_url }}" />
+  <meta name="twitter:image" content="{{ site.logo_url | relative_url }}" />
+  {% endif %}
+
+  <!-- <link rel="stylesheet" href="{{ 'skin.css?v=' | append: site.github.build_revision | relative_url }}"> -->
+<link rel="stylesheet" href="skin.css">
+  <!--HTMLHeader-->
+</head>
+
+<body>
+  <div id="bodywrap">
+    <input id="wikileft-toggle" type="checkbox" />
+    <label for="wikileft-toggle" id="wikileft-toggle-label"></label>
+    <!--PageHeaderFmt-->
+    <header id="wikihead">
+      <div id="wikihead-content">
+        <input type="checkbox" id="wikihead-search-toggle" />
+        <label for="wikihead-search-toggle" id="wikihead-search-toggle-label"></label>
+        <!--function:SkinElement skinheader-->
+        <span id="wikilogo"><a href="{$ScriptUrl}"><img src="$PageLogoUrl" alt="$WikiTitle" /></a></span>
+        <form id="wikihead-searchform" action="{$ScriptUrl}" method="get">
+          <span class="headnav" id="wikihead-recent-changes-link">
+            <a href="{$ScriptUrl}/$[{$Group}/RecentChanges]" accesskey="$[ak_recentchanges]">$[Recent Changes]</a> -
+          </span>
+          <span id="wikihead-searchlink"><a href="{$ScriptUrl}/$[{$SiteGroup}/Search]">$[Search]</a>:</span>
+          <input type="hidden" name="n" value="{$FullName}" />
+          <input type="hidden" name="action" value="search" />
+          <input id="wikihead-searchquery" type="search" name="q" value="" class="inputbox searchbox"
+            placeholder="$[Search]" />
+          <input id="wikihead-searchsubmitbtn" type="submit" class="inputbutton searchbutton" value="$[Go]" />
+        </form>
+      </div>
+      <!--wikiheadcontent-->
+    </header>
+    <!--wikihead-->
+    <!--/PageHeaderFmt-->
+
+    <div id="wikimid">
+      <!--PageLeftFmt-->
+      <nav id="wikisidebar">
+        <div id="wikileft">
+          <!--wiki:{$Group}.SideBar {$SiteGroup}.SideBar-->
+          <span>Pages {% if (site.show_wiki_pages_limit >= 1 %} (Latest {{site.show_wiki_pages_limit
+          }} updated) {% endif %}:</span>
+      <ul>
+          {% assign numPages=0 %}
+          {% assign items = site.html_pages | sort: 'date' %}
+          {% for page in items %}
+          {% if numPages >= site.show_wiki_pages_limit %}
+          {% break %}
+          {% endif %}
+          {% if page.is_wiki_page != false and page.sitemap != false %}
+          <li >
+              {% assign title = page.title | default: page.name %}
+              <a href="{{ page.url | relative_url }}">{{title | escape}}</a>
+          </li>
+          {% assign numPages = numPages | plus: 1 %}
+          {% endif %}
+  
+          {% endfor %}
+        </div>
+      </nav>
+      <!--/PageLeftFmt-->
+
+
+      <div id="wikibody">
+        <!--PageActionFmt-->
+        <input id="wikicmds-toggle" type="checkbox" />
+        <label for="wikicmds-toggle" id="wikicmds-toggle-label"></label>
+        <div id='wikicmds'>
+          <!--wiki:{$Group}.PageActions {$SiteGroup}.PageActions-->
+        </div>
+        <!--/PageActionFmt-->
+        <main>
+          <!--PageTitleFmt-->
+          <div id='wikititle'>
+            <div class='pagegroup'><a href='{$ScriptUrl}/{$Group}'>{$Group}</a> /</div>
+            <h1 class='pagetitle'>{$Title}</h1>
+          </div>
+          <!--/PageTitleFmt-->
+          {% include git-wiki/components/toc/toc-lib.html title="Contents:" minHeaders=1 html=content sanitize=true class="inline_toc" id="git-wiki-toc" h_min=1 h_max=3 ordered=1 %}
+          {{ content }}
+          <!--PageText-->
+        </main>
+
+      </div>
+      <!--wikibody-->
+
+    </div>
+    <!--wikimid-->
+
+    <!--PageFooterFmt-->
+    <footer id='wikifoot'>
+      <!--function:SkinElement skinfooter-->
+      <div id="wikifoot-links" class="footnav">
+        {% if site.disable_edit != true %}
+
+        <a rel="nofollow" target="_blank"
+          href="{{ site.github.repository_url }}/edit/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">$[Edit]</a>
+        -
+        {% if site.github.hostname == "gitlab.com" %}
+        <a target="_blank"
+          href="{{ site.github.repository_url }}/blob/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">Delete</a>
+        {% else %}
+        <a target="_blank"
+          href="{{ site.github.repository_url }}/delete/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">Delete</a>
+        {% endif %}
+        <a rel="nofollow" href="{{ site.github.repository_url }}/commits/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">$[History]</a> -
+        <a target="_blank" href="{{ site.github.repository_url }}/blob/{{site.git_branch | escape}}/{{ site.site_root | default: '/' }}{{page.path | escape}}">Source</a>
+        <a rel="nofollow" href="{$PageUrl}?action=print" target="_blank">$[Print]</a> -
+        <a href="{$ScriptUrl}/$[{$Group}/RecentChanges]">$[Recent Changes]</a> -
+        <a href="{$ScriptUrl}/$[{$SiteGroup}/Search]">$[Search]</a>
+      </div>
+      <div id="wikifoot-lastmod" class="lastmod">$[Page last modified on {$LastModified}]</div>',
+
+    </footer>
+    <!--/PageFooterFmt-->
+
+
+  </div>
+  <!--bodywrap-->
+
+  <script type='text/javascript' src='$SkinDirUrl/skin.js'></script>
+
+  <!--HTMLFooter-->
+
+
+</body>
+
+</html>
