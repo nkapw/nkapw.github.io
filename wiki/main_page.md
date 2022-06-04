@@ -1,7 +1,7 @@
 ---
 redirect_from: "/"
 ---
-
+[hello](hllo.md)
 
 # PENGENALAN JAVA
 ## **1.1 Sejarah Singkat Java**
