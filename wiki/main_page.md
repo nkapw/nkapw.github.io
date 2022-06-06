@@ -108,6 +108,7 @@ Berikut ini adalah daftar dari kata kunci dalam Java (Java Keywords):
 | transient  | try         | void      | volatile   | while  | 
 
 
+
 ### **1.5.3	Literal**
 Penulisan besaran untuk variabel adalah penting, literal Java terdiri dari angka, karakter, dan string. Angka terdiri dari bilangan bulat (integer), bilangan mengambang (floating point), dan boolean. Nilai boolean untuk true dan false direpresentasikan sebagai 1 dan 0. Karakter selalu mengacu ke karakter Unicode. String berisi rangkaian karakter. String literal merepresentasikan banyak karakter dan muncul di dalam pasangan tanda petik ganda (”...”).
 Literal karakter direpresentasikan satu karakter Unicode tunggal dan muncul di pasangan tanda petik tunggal (‟...‟). Serupa C/C++, karakter khusus (seperti karakter kendali dan karakter yang tidak dapat dicetak) direpresentasikan dengan backslash (\) diikuti kode karakter.
@@ -385,6 +386,8 @@ Tabel 3.4 Tabel Kebenaran Operator AND
 ### 3.5.3	**Operator exclusive OR (^)**
 Hasil operator exclusive OR bernilai true jika dan hanya jika kedua operand memiliki nilai boolean yang berbeda. Berikut ini adalah tabel kebenaran untuk exclusive OR:
 Tabel 3.4 Tabel Kebenaran Operator OR
+
+
 |  P1  |  P2  |  P1 ^ P2  |
 |------|------|-----------|
 |true  |true  |false      |
@@ -392,9 +395,12 @@ Tabel 3.4 Tabel Kebenaran Operator OR
 |true  |false |true       |
 |false |false |false      |
 
+
 ### **3.5.4	Operator NOT (!)**
 Logika NOT digunakan dalam satu argumen, dimana argumen tersebut dapat menjadi suatu pernyataan, variabel atau konstanta. Berikut adalah tabel kebenaran untuk NOT:
 Tabel 3.4 Tabel Kebenaran Operator AND
+
+
 |P1	   |!P1   |
 |------|------|
 |true  |false |
