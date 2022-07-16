@@ -39,7 +39,7 @@
         <label for="wikihead-search-toggle" id="wikihead-search-toggle-label"></label>
         <!--function:SkinElement skinheader-->
         <span id="wikilogo"><a href="{$ScriptUrl}"><img src="$PageLogoUrl" alt="$WikiTitle" /></a></span>
-        <form id="wikihead-searchform" action="{$ScriptUrl}" method="get">
+<!--         <form id="wikihead-searchform" action="{$ScriptUrl}" method="get">
           <span class="headnav" id="wikihead-recent-changes-link">
             <a href="{$ScriptUrl}/$[{$Group}/RecentChanges]" accesskey="$[ak_recentchanges]">Recent Changes</a> -
           </span>
@@ -49,7 +49,8 @@
           <input id="wikihead-searchquery" type="search" name="q" value="" class="inputbox searchbox"
             placeholder="$[Search]" />
           <input id="wikihead-searchsubmitbtn" type="submit" class="inputbutton searchbutton" value="$[Go]" />
-        </form>
+        </form> -->
+            {% include git-wiki/components/search/index.html %}
       </div>
       <!--wikiheadcontent-->
     </header>
