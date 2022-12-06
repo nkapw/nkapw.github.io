@@ -132,6 +132,7 @@ Ada banyak sekali tipe data yang tersedia di MySQL, dari yang sederhana, sampai 
 Biasanya kita akan menggunakan tipe data sesuai dengan kebutuhan kolom yang perlu kita buat
 
 ### 5.2. Tipe Data per Kolom
+
 | Id (number) | Nama (text) | Harga (number) | Jumlah (number) |
 | :---------: | :---------: | :------------: | :-------------: |
 |      1      |    Apel     |      5000      |       100       |
@@ -154,6 +155,7 @@ Floating Point, atau tipe data number pecahan
 ### 5.6. DECIMAL
 Selain Integer dan Floating Point, di MySQL terdapat tipe data DECIMAL
 Ini tipe data number khusus yang bisa ditentukan jumlah precision dan scale nya
+
 |    DECIMAL    |   Min   |  Max   |
 | :-----------: | :-----: | :----: |
 | DECIMAL(5, 2) | -999.99 | 999.99 |
@@ -200,6 +202,7 @@ Selain tipe data Number dan String, biasanya kadang kita sering menyimpan data w
 Sebenarnya bisa kita gunakan String untuk menyimpan data waktu atau tanggal, namun itu tidak di rekomendasikan, karena akan menyulitkan kita ketika nanti butuh melakukan manipulasi waktu atau tanggal di MySQL
 
 ### 7.2. Jenis-Jenis Tipe Data Date dan Time
+
 | Tipe Data Date dan Time |       Format        |       Contoh        |
 | :---------------------: | :-----------------: | :-----------------: |
 |          DATE           |     YYYY-MM-DD      |     2020-10-10      |
@@ -480,6 +483,7 @@ Sebenarnya sangat banyak sekali operator yang bisa kita gunakan ketika menggunak
 Sekarang kita akan bahas satu per satu
 
 ### 18.2. Operator Perbandingan
+
 |  Operator  |          Keterangan          |
 | :--------: | :--------------------------: |
 |     =      |         Sama dengan          |
@@ -513,6 +517,7 @@ Kadang kita ingin mencari data dengan beberapa gabungan kondisi, kita bisa mengg
 AND dan OR digunakan untuk menggabungkan beberapa dua operator
 
 ### 18.5. Hasil Operator AND 
+
 | Hasil Operator 1 | Operator | Hasil Operator 2 | Hasil Akhir |
 | :--------------: | :------: | :--------------: | :---------: |
 |      Benar       |   AND    |      Benar       |    Benar    |
@@ -530,6 +535,7 @@ WHERE category = 'Makanan' AND price < 20000;
 ```
 
 ### 18.7. Hasil Operator OR 
+
 | Hasil Operator 1 | Operator | Hasil Operator 2 | Hasil Akhir |
 | :--------------: | :------: | :--------------: | :---------: |
 |      Benar       |    OR    |      Benar       |    Benar    |
@@ -558,6 +564,7 @@ Namun perlu diingat, operasi LIKE itu sangat lambat, oleh karena itu, tidak disa
 Operasi LIKE tidak case sensitive, jadi huruf besar dan kecil tidak akan berpengaruh
 
 ### 18.11. Hasil Operator LIKE
+
 | LIKE Operator |          Hasil          |
 | :-----------: | :---------------------: |
 |   LIKE ‘b%’   | String dengan awalan b  |
@@ -896,6 +903,7 @@ Seperti yang sebelumnya dibahas, ketika kita menghapus data yang berelasi, maka 
 Kita bisa mengubah fitur ini jika kita mau, ada banyak hal yang bisa dilakukan ketika data berelasi dihapus, defaultnya memang akan ditolak (RESTRICT)
 
 ### 32.6. Behavior Foreign Key
+
 | Behavior  |     ON DELETE     |       ON UPDATE       |
 | :-------: | :---------------: | :-------------------: |
 | RESTRICT  |      Ditolak      |        Ditolak        |
@@ -1165,6 +1173,7 @@ Jika sebuah transaction sukses, maka semua perintah akan dipastikan sukses
 ![](assets/Membatalkan%20Transaction.png)
 
 ### 40.5. Transaction di MySQL
+
 |     Perintah      |                                                Keterangan                                                 |
 | :---------------: | :-------------------------------------------------------------------------------------------------------: |
 | START TRANSACTION | Memulai proses transaksi, proses selanjutnya akan dianggap transaksi sampai perintah COMMIT atau ROLLBACK |
@@ -1218,6 +1227,7 @@ LOCK TABLES nama_Table WRITE
 Setelah selesai melakukan lock table, kita bisa melakukan unlock dengan perintah : UNLOCK TABLES;
 
 ### 41.7. Behaviour Lock Tables
+
 | Perintah |              Proses yang Melakukan Lock               |                                  Proses lain                                  |
 | :------: | :---------------------------------------------------: | :---------------------------------------------------------------------------: |
 |   READ   |   Hanya bisa melakukan read terhadap tabel tersebut   | Hanya bisa melakukan read terhadap tabel tersebut, tidak bisa melakukan write |
