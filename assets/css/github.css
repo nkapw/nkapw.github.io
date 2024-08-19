@@ -20,7 +20,8 @@ html, body, #bodywrap {
   padding: 0;
   margin: 0;
   background-color: #fff;
-  font-family: 'Arial', 'Helvetica', Sans-serif;
+/*   font-family: 'Arial', 'Helvetica', Sans-serif; */
+    font-family: "Courier Prime", monospace;
   font-size:15px;
   line-height: 25px;
 }
