@@ -1,0 +1,43 @@
+---
+import WikiLayout from '../../layouts/WikiLayout.astro';
+import { getTagGroups, getWikiPages } from '../../lib/wiki';
+
+export async function getStaticPaths() {
+  const groups = getTagGroups(await getWikiPages());
+  return groups.map((g) => ({
+    params: { tag: g.slug },
+    props: {
+      tag: g.tag,
+      pages: g.pages.sort((a, b) => a.data.title.localeCompare(b.data.title)),
+    },
+  }));
+}
+
+const { tag, pages } = Astro.props;
+
+const crumbs = [
+  { label: 'Home', href: '/' },
+  { label: 'Tags', href: '/tags/' },
+  { label: tag },
+];
+---
+
+<WikiLayout title={`Tag: ${tag}`} crumbs={crumbs}>
+  <h1>Tag: {tag}</h1>
+  <ul>
+    {
+      pages.map((p) => (
+        <li>
+          <a href={`/wiki/${p.id}/`}>{p.data.title}</a>
+          {p.data.description && (
+            <>
+              <br />
+              <small>{p.data.description}</small>
+            </>
+          )}
+        </li>
+      ))
+    }
+  </ul>
+  <p><a href="/tags/">&larr; All tags</a></p>
+</WikiLayout>

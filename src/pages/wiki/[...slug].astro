@@ -1,0 +1,152 @@
+---
+import WikiLayout from '../../layouts/WikiLayout.astro';
+import { render } from 'astro:content';
+import { getBacklinks, getWikiPages, slugifyTag } from '../../lib/wiki';
+
+export async function getStaticPaths() {
+  const pages = await getWikiPages();
+  return pages.map((page) => ({
+    params: { slug: page.id },
+    props: { page },
+  }));
+}
+
+const { page } = Astro.props;
+const { Content, headings } = await render(page);
+const { title, description, updated, tags, related } = page.data;
+
+// Resolve related slugs to their titles for nicer link text.
+const allPages = await getWikiPages();
+const relatedPages = (related ?? [])
+  .map((slug) => allPages.find((p) => p.id === slug))
+  .filter((p) => p !== undefined);
+
+// Pages that link to this one (inbound) — computed, not hand-maintained.
+const backlinks = getBacklinks(page.id, allPages);
+
+// Reading time: strip markdown syntax, count words, assume 200 wpm.
+const wordCount = (page.body ?? '')
+  .replace(/```[\s\S]*?```/g, '')
+  .replace(/[#*`[\]()>_~]/g, '')
+  .split(/\s+/)
+  .filter(Boolean).length;
+const readingTime = Math.max(1, Math.round(wordCount / 200));
+
+// Prev / next in alphabetical order (same order as the home page listing),
+// excluding the index page itself.
+const sorted = allPages
+  .filter((p) => p.id !== 'index')
+  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+const idx = sorted.findIndex((p) => p.id === page.id);
+const prev = idx > 0 ? sorted[idx - 1] : null;
+const next = idx < sorted.length - 1 ? sorted[idx + 1] : null;
+
+// Turn a folder/file slug segment into a readable label: "maps-of-content" -> "Maps Of Content".
+const humanize = (seg: string) =>
+  seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Build the breadcrumb trail from the page id, which mirrors the folder
+// structure (e.g. "methods/maps-of-content"). A folder links to its index
+// page when one exists, otherwise it renders as plain text.
+const segments = page.id.split('/');
+const crumbs: { label: string; href?: string }[] = [{ label: 'Home', href: '/' }];
+let acc = '';
+segments.forEach((seg, i) => {
+  acc = acc ? `${acc}/${seg}` : seg;
+  if (i === segments.length - 1) {
+    crumbs.push({ label: title }); // current page — no link
+  } else {
+    const index = allPages.find((p) => p.id === `${acc}/index`);
+    crumbs.push({ label: humanize(seg), href: index ? `/wiki/${index.id}/` : undefined });
+  }
+});
+---
+
+<WikiLayout title={title} description={description} headings={headings} crumbs={crumbs}>
+  <article>
+    <h1>{title}</h1>
+    {description && <p>{description}</p>}
+
+    <p>
+      <small>
+        ~{readingTime} min read
+        {updated && (
+          <>
+            {' · '}Updated{' '}
+            {updated.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </>
+        )}
+      </small>
+    </p>
+
+    {
+      tags && tags.length > 0 && (
+        <p>
+          <small>
+            Tags:{' '}
+            {tags.map((t, i) => (
+              <>
+                {i > 0 && ', '}
+                <a href={`/tags/${slugifyTag(t)}/`}>{t}</a>
+              </>
+            ))}
+          </small>
+        </p>
+      )
+    }
+
+    <hr />
+
+    <Content />
+  </article>
+
+  {
+    relatedPages.length > 0 && (
+      <>
+        <p>Related pages:</p>
+        <ul>
+          {relatedPages.map((p) => (
+            <li>
+              <a href={`/wiki/${p.id}/`}>{p.data.title}</a>
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  {
+    backlinks.length > 0 && (
+      <>
+        <p>Linked from:</p>
+        <ul>
+          {backlinks.map((p) => (
+            <li>
+              <a href={`/wiki/${p.id}/`}>{p.data.title}</a>
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  <hr />
+
+  <p>
+    {prev
+      ? <a href={`/wiki/${prev.id}/`}>&larr; {prev.data.title}</a>
+      : <span>&larr; (first page)</span>
+    }
+    {' | '}
+    {next
+      ? <a href={`/wiki/${next.id}/`}>{next.data.title} &rarr;</a>
+      : <span>(last page) &rarr;</span>
+    }
+  </p>
+
+  <p><a href="/">↑ All pages</a></p>
+</WikiLayout>

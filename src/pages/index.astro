@@ -1,0 +1,72 @@
+---
+import WikiLayout from '../layouts/WikiLayout.astro';
+import { getWikiPages } from '../lib/wiki';
+
+const all = await getWikiPages();
+const pages = all
+  .filter((p) => p.id !== 'index')
+  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+
+const recent = all
+  .filter((p) => p.data.updated instanceof Date)
+  .sort((a, b) => b.data.updated!.getTime() - a.data.updated!.getTime())
+  .slice(0, 5);
+---
+
+<WikiLayout title="Wiki" description="A personal wiki on knowledge management.">
+  <h1>Wiki</h1>
+  <p>A personal collection of notes on knowledge management and thinking tools.</p>
+  <p>New here? Start with the <a href="/wiki/index/">Overview</a>.</p>
+
+  <h2>Recently updated</h2>
+  <ul>
+    {
+      recent.map((page) => (
+        <li>
+          <a href={`/wiki/${page.id}/`}>{page.data.title}</a>
+          {' — '}
+          <small>
+            {page.data.updated!.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </small>
+        </li>
+      ))
+    }
+  </ul>
+
+  <h2>All pages</h2>
+  <p>
+    <label for="filter">Filter:</label>
+    <input type="search" id="filter" placeholder="Filter pages..." />
+  </p>
+
+  <ul id="all-pages">
+    {
+      pages.map((page) => (
+        <li data-text={`${page.data.title} ${page.data.description ?? ''}`.toLowerCase()}>
+          <a href={`/wiki/${page.id}/`}>{page.data.title}</a>
+          {page.data.description && (
+            <>
+              <br />
+              <small>{page.data.description}</small>
+            </>
+          )}
+        </li>
+      ))
+    }
+  </ul>
+
+  <script>
+    const input = document.getElementById('filter') as HTMLInputElement;
+    const items = document.querySelectorAll<HTMLLIElement>('#all-pages li');
+    input.addEventListener('input', () => {
+      const q = input.value.toLowerCase();
+      items.forEach((li) => {
+        li.hidden = !(li.dataset.text ?? '').includes(q);
+      });
+    });
+  </script>
+</WikiLayout>

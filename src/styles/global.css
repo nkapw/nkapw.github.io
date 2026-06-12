@@ -1,0 +1,72 @@
+/*
+ * global.css — the ONLY hand-written CSS in this project.
+ *
+ * Philosophy: let the browser render everything it can natively.
+ * We only declare:
+ *   1. A system font stack (Georgia for body, monospace for code)
+ *   2. A max-width on the reading column
+ *   3. A light gray background for code blocks
+ *   4. An optional prefers-color-scheme inversion
+ *
+ * No custom link colors (browser blue + #551a8b visited are kept).
+ * No border-radius, no box-shadow, no decorative anything.
+ */
+
+body {
+  font-family: Georgia, serif;
+  color: #000;
+  background: #fff;
+  /* Layout width lives in Tailwind (max-w-2xl), but we keep a hard cap here
+     so the site is still readable with Tailwind removed entirely. */
+  line-height: 1.5;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: monospace;
+}
+
+/* Code blocks: light gray background only. Shiki adds inline color spans. */
+pre {
+  background: #f5f5f5;
+  padding: 0.75em;
+  overflow-x: auto;
+}
+
+/* Inline code gets the same subtle gray so it reads as code. */
+:not(pre) > code {
+  background: #f5f5f5;
+  padding: 0 0.2em;
+}
+
+/* Blockquotes use the browser's default indentation; nothing fancy. */
+
+/* If the OS prefers dark mode, do a plain inversion. No toggle, no theming. */
+@media print {
+  /* Hide navigation chrome — just the content on paper. */
+  header, footer, nav, hr { display: none; }
+  /* Expand links: print the URL after the link text. */
+  a[href^="http"]::after { content: " (" attr(href) ")"; }
+  /* No need for syntax colors on paper. */
+  pre, :not(pre) > code { background: none; border: 1px solid #ccc; }
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #fff;
+    background: #000;
+  }
+  pre,
+  :not(pre) > code {
+    background: #1a1a1a;
+  }
+  /* Keep links legible on black. */
+  a:link {
+    color: #6cf;
+  }
+  a:visited {
+    color: #c9f;
+  }
+}

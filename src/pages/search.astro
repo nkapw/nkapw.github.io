@@ -1,0 +1,63 @@
+---
+import WikiLayout from '../layouts/WikiLayout.astro';
+---
+
+<WikiLayout title="Search">
+  <h1>Search</h1>
+
+  <p>
+    <label for="q">Query:</label>
+    <input type="search" id="q" autofocus />
+  </p>
+
+  <ul id="results"></ul>
+  <p id="status"></p>
+
+  <script>
+    // Pagefind is only available after `npm run build` (it indexes the static
+    // output). In dev the script import will fail silently and the input stays
+    // as a no-op — the title-based filter on the home page still works there.
+    let pf: any = null;
+    async function getPagefind() {
+      if (pf) return pf;
+      try {
+        // @ts-ignore — generated at build time, not a static import
+        pf = await import('/pagefind/pagefind.js');
+        await pf.init();
+      } catch {
+        pf = null;
+      }
+      return pf;
+    }
+
+    const input = document.getElementById('q') as HTMLInputElement;
+    const list  = document.getElementById('results') as HTMLUListElement;
+    const status = document.getElementById('status') as HTMLParagraphElement;
+
+    input.addEventListener('input', async () => {
+      const q = input.value.trim();
+      list.innerHTML = '';
+      status.textContent = '';
+      if (!q) return;
+
+      const engine = await getPagefind();
+      if (!engine) {
+        status.textContent = 'Search unavailable in dev mode. Run npm run build first.';
+        return;
+      }
+
+      const res = await engine.search(q);
+      if (res.results.length === 0) {
+        status.textContent = 'No results.';
+        return;
+      }
+
+      for (const r of res.results) {
+        const data = await r.data();
+        const li = document.createElement('li');
+        li.innerHTML = `<a href="${data.url}">${data.meta?.title ?? data.url}</a><br><small>${data.excerpt}</small>`;
+        list.appendChild(li);
+      }
+    });
+  </script>
+</WikiLayout>

@@ -1,0 +1,23 @@
+---
+import WikiLayout from '../../layouts/WikiLayout.astro';
+import { getTagGroups, getWikiPages } from '../../lib/wiki';
+
+const groups = getTagGroups(await getWikiPages());
+
+const crumbs = [{ label: 'Home', href: '/' }, { label: 'Tags' }];
+---
+
+<WikiLayout title="Tags" crumbs={crumbs}>
+  <h1>Tags</h1>
+  <p>Browse pages by tag.</p>
+  <ul>
+    {
+      groups.map((g) => (
+        <li>
+          <a href={`/tags/${g.slug}/`}>{g.tag}</a> ({g.pages.length})
+        </li>
+      ))
+    }
+  </ul>
+  <p><a href="/">&larr; Back to all pages</a></p>
+</WikiLayout>

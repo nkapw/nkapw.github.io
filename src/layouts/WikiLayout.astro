@@ -1,0 +1,110 @@
+---
+import '../styles/global.css';
+import type { MarkdownHeading } from 'astro';
+import { getWikiPages } from '../lib/wiki';
+
+interface Props {
+  title: string;
+  description?: string;
+  // When present, render a table-of-contents sidebar (desktop only).
+  headings?: MarkdownHeading[];
+  // Breadcrumb trail (built from the page's folder structure). The last
+  // crumb has no href — it is the current page.
+  crumbs?: { label: string; href?: string }[];
+}
+
+const { title, description, headings = [], crumbs = [] } = Astro.props;
+
+// Only h2/h3 make a useful TOC; h1 is the page title.
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const hasToc = toc.length > 0;
+
+const pages = await getWikiPages();
+const pageCount = pages.length;
+const lastUpdated = pages
+  .map((p) => p.data.updated)
+  .filter((d): d is Date => d instanceof Date)
+  .sort((a, b) => b.getTime() - a.getTime())[0];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="alternate" type="application/rss+xml" title="Personal Wiki" href="/rss.xml" />
+  </head>
+  <body>
+    <!-- Centered column. Widen it when a TOC sidebar is present. Tailwind = layout only. -->
+    <div class={`${hasToc ? 'max-w-4xl' : 'max-w-2xl'} mx-auto px-4 py-6`}>
+      <header data-pagefind-ignore>
+        <strong>Personal Wiki</strong>
+        <nav>
+          <a href="/">Home</a> |
+          <a href="/#all-pages">All Pages</a> |
+          <a href="/tags/">Tags</a> |
+          <a href="/search/">Search</a>
+        </nav>
+      </header>
+
+      <hr />
+
+      {
+        crumbs.length > 0 && (
+          <nav aria-label="Breadcrumb">
+            {crumbs.map((c, i) => (
+              <>
+                {i > 0 && ' / '}
+                {c.href ? <a href={c.href}>{c.label}</a> : c.label}
+              </>
+            ))}
+          </nav>
+        )
+      }
+
+      {
+        hasToc ? (
+          <div class="lg:grid lg:grid-cols-[200px_1fr] lg:gap-8">
+            <nav aria-label="Table of contents">
+              <p><strong>On this page</strong></p>
+              <ul>
+                {toc.map((h) => (
+                  <li>
+                    <a href={`#${h.slug}`}>{h.text}</a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            <main data-pagefind-body>
+              <slot />
+            </main>
+          </div>
+        ) : (
+          <main data-pagefind-body>
+            <slot />
+          </main>
+        )
+      }
+
+      <hr />
+
+      <footer data-pagefind-ignore>
+        <p>
+          {pageCount} page{pageCount === 1 ? '' : 's'}.
+          {lastUpdated && (
+            <>
+              {' '}Last updated{' '}
+              {lastUpdated.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}.
+            </>
+          )}
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
