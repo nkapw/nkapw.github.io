@@ -34,6 +34,19 @@ const lastUpdated = pages
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={Astro.url.href} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:site_name" content="Personal Wiki" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    {description && <meta name="twitter:description" content={description} />}
+
     <link rel="alternate" type="application/rss+xml" title="Personal Wiki" href="/rss.xml" />
   </head>
   <body>
@@ -44,7 +57,9 @@ const lastUpdated = pages
         <nav>
           <a href="/">Home</a> |
           <a href="/#all-pages">All Pages</a> |
+          <a href="/tutorial/">Tutorial</a> |
           <a href="/tags/">Tags</a> |
+          <a href="/stats/">Stats</a> |
           <a href="/search/">Search</a>
         </nav>
       </header>
@@ -106,5 +121,18 @@ const lastUpdated = pages
         </p>
       </footer>
     </div>
+
+    <!-- Heading anchors: append a § link to every heading that has an id,
+         so individual sections can be deep-linked. Pure JS, no extra package. -->
+    <script>
+      document.querySelectorAll('main h2[id], main h3[id], main h4[id]').forEach((h) => {
+        const a = document.createElement('a');
+        a.href = '#' + h.id;
+        a.setAttribute('aria-hidden', 'true');
+        a.setAttribute('tabindex', '-1');
+        a.textContent = ' §';
+        h.append(a);
+      });
+    </script>
   </body>
 </html>

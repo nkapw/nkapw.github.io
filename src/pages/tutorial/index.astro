@@ -1,0 +1,34 @@
+---
+import WikiLayout from '../../layouts/WikiLayout.astro';
+import { getTutorialPages, getAllSeries, getLessons, seriesSlug } from '../../lib/tutorial';
+
+const all = await getTutorialPages();
+const series = getAllSeries(all);
+---
+
+<WikiLayout title="Tutorials">
+  <h1>Tutorials</h1>
+  <p>Step-by-step guides, organized by series.</p>
+
+  <ul>
+    {
+      series.map((s) => {
+        const slug = seriesSlug(s.id);
+        const count = getLessons(all, slug).length;
+        return (
+          <li>
+            <a href={`/tutorial/${slug}/`}>{s.data.title}</a>
+            {' '}
+            <small>({count} lesson{count === 1 ? '' : 's'})</small>
+            {s.data.description && (
+              <>
+                <br />
+                <small>{s.data.description}</small>
+              </>
+            )}
+          </li>
+        );
+      })
+    }
+  </ul>
+</WikiLayout>

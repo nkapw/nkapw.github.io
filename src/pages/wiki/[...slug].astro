@@ -3,6 +3,8 @@ import WikiLayout from '../../layouts/WikiLayout.astro';
 import { render } from 'astro:content';
 import { getBacklinks, getWikiPages, slugifyTag } from '../../lib/wiki';
 
+const GITHUB_REPO = 'https://github.com/nkapw/nkapw.github.io';
+
 export async function getStaticPaths() {
   const pages = await getWikiPages();
   return pages.map((page) => ({
@@ -148,5 +150,9 @@ segments.forEach((seg, i) => {
     }
   </p>
 
-  <p><a href="/">↑ All pages</a></p>
+  <p>
+    <a href="/">↑ All pages</a>
+    {' · '}
+    <a href={`${GITHUB_REPO}/edit/master/src/content/wiki/${page.id}.md`} target="_blank" rel="noopener">Edit this page on GitHub</a>
+  </p>
 </WikiLayout>

@@ -1,0 +1,43 @@
+---
+import WikiLayout from '../../../layouts/WikiLayout.astro';
+import { getTutorialPages, getAllSeries, getLessons, seriesSlug, lessonSlug } from '../../../lib/tutorial';
+
+export async function getStaticPaths() {
+  const all = await getTutorialPages();
+  return getAllSeries(all).map((s) => ({
+    params: { series: seriesSlug(s.id) },
+    props: { series: s, all },
+  }));
+}
+
+const { series, all } = Astro.props;
+const slug = seriesSlug(series.id);
+const lessons = getLessons(all, slug);
+
+const crumbs = [
+  { label: 'Home', href: '/' },
+  { label: 'Tutorials', href: '/tutorial/' },
+  { label: series.data.title },
+];
+---
+
+<WikiLayout title={series.data.title} description={series.data.description} crumbs={crumbs}>
+  <h1>{series.data.title}</h1>
+  {series.data.description && <p>{series.data.description}</p>}
+
+  <ol>
+    {
+      lessons.map((lesson) => (
+        <li>
+          <a href={`/tutorial/${slug}/${lessonSlug(lesson.id)}/`}>{lesson.data.title}</a>
+          {lesson.data.description && (
+            <>
+              <br />
+              <small>{lesson.data.description}</small>
+            </>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</WikiLayout>

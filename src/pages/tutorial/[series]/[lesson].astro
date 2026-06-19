@@ -1,0 +1,95 @@
+---
+import WikiLayout from '../../../layouts/WikiLayout.astro';
+import { render } from 'astro:content';
+import { getTutorialPages, getLessons, getSeriesEntry, seriesSlug, lessonSlug, isIndex } from '../../../lib/tutorial';
+
+const GITHUB_REPO = 'https://github.com/nkapw/nkapw.github.io';
+
+export async function getStaticPaths() {
+  const all = await getTutorialPages();
+  const lessons = all.filter((e) => !isIndex(e.id));
+  return lessons.map((lesson) => ({
+    params: {
+      series: seriesSlug(lesson.id),
+      lesson: lessonSlug(lesson.id),
+    },
+    props: { lesson, all },
+  }));
+}
+
+const { lesson, all } = Astro.props;
+const { Content, headings } = await render(lesson);
+const { title, description, updated, tags } = lesson.data;
+
+const slug = seriesSlug(lesson.id);
+const seriesEntry = getSeriesEntry(all, slug);
+const lessons = getLessons(all, slug);
+const idx = lessons.findIndex((l) => l.id === lesson.id);
+const prev = idx > 0 ? lessons[idx - 1] : null;
+const next = idx < lessons.length - 1 ? lessons[idx + 1] : null;
+
+// Word count → reading time.
+const wordCount = (lesson.body ?? '')
+  .replace(/```[\s\S]*?```/g, '')
+  .replace(/[#*`[\]()>_~]/g, '')
+  .split(/\s+/)
+  .filter(Boolean).length;
+const readingTime = Math.max(1, Math.round(wordCount / 200));
+
+const crumbs = [
+  { label: 'Home', href: '/' },
+  { label: 'Tutorials', href: '/tutorial/' },
+  { label: seriesEntry?.data.title ?? slug, href: `/tutorial/${slug}/` },
+  { label: title },
+];
+---
+
+<WikiLayout title={title} description={description} headings={headings} crumbs={crumbs}>
+  <article>
+    <h1>{title}</h1>
+    {description && <p>{description}</p>}
+
+    <p>
+      <small>
+        Lesson {idx + 1} of {lessons.length} · ~{readingTime} min read
+        {updated && (
+          <>
+            {' · '}Updated{' '}
+            {updated.toLocaleDateString('en-US', {
+              year: 'numeric', month: 'long', day: 'numeric',
+            })}
+          </>
+        )}
+      </small>
+    </p>
+
+    {tags && tags.length > 0 && (
+      <p><small>Tags: {tags.join(', ')}</small></p>
+    )}
+
+    <hr />
+
+    <Content />
+  </article>
+
+  <hr />
+
+  <p>
+    {prev
+      ? <a href={`/tutorial/${slug}/${lessonSlug(prev.id)}/`}>&larr; {prev.data.title}</a>
+      : <a href={`/tutorial/${slug}/`}>&larr; Back to {seriesEntry?.data.title ?? slug}</a>
+    }
+    {next && (
+      <>
+        {' | '}
+        <a href={`/tutorial/${slug}/${lessonSlug(next.id)}/`}>{next.data.title} &rarr;</a>
+      </>
+    )}
+  </p>
+
+  <p>
+    <a href="/tutorial/">↑ All tutorials</a>
+    {' · '}
+    <a href={`${GITHUB_REPO}/edit/master/src/content/tutorials/${lesson.id}.md`} target="_blank" rel="noopener">Edit this page on GitHub</a>
+  </p>
+</WikiLayout>

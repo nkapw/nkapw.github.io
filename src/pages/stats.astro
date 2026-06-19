@@ -1,0 +1,108 @@
+---
+import WikiLayout from '../layouts/WikiLayout.astro';
+import { getWikiPages, getBacklinks, getTagGroups } from '../lib/wiki';
+import { getTutorialPages, isIndex, seriesSlug } from '../lib/tutorial';
+
+const wikiPages  = await getWikiPages();
+const tutPages   = await getTutorialPages();
+const lessons    = tutPages.filter((p) => !isIndex(p.id));
+const series     = tutPages.filter((p) => isIndex(p.id));
+
+// Word counts.
+const countWords = (body: string) =>
+  body.replace(/```[\s\S]*?```/g, '').replace(/[#*`[\]()>_~]/g, '').split(/\s+/).filter(Boolean).length;
+
+const wikiWords    = wikiPages.reduce((s, p) => s + countWords(p.body ?? ''), 0);
+const tutWords     = lessons.reduce((s, p) => s + countWords(p.body ?? ''), 0);
+const totalWords   = wikiWords + tutWords;
+
+// Tags.
+const tagGroups = getTagGroups(wikiPages)
+  .sort((a, b) => b.pages.length - a.pages.length)
+  .slice(0, 10);
+
+// Backlinks — rank wiki pages by how many others link to them.
+const byBacklinks = wikiPages
+  .map((p) => ({ page: p, count: getBacklinks(p.id, wikiPages).length }))
+  .filter((r) => r.count > 0)
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 10);
+
+// Orphaned wiki pages (no inbound links).
+const orphans = wikiPages.filter((p) => p.id !== 'index' && getBacklinks(p.id, wikiPages).length === 0);
+---
+
+<WikiLayout title="Stats">
+  <h1>Stats</h1>
+
+  <h2>Overview</h2>
+  <table border="1">
+    <tbody>
+      <tr><td>Wiki pages</td><td>{wikiPages.length}</td></tr>
+      <tr><td>Tutorial series</td><td>{series.length}</td></tr>
+      <tr><td>Tutorial lessons</td><td>{lessons.length}</td></tr>
+      <tr><td>Total words (wiki)</td><td>{wikiWords.toLocaleString()}</td></tr>
+      <tr><td>Total words (tutorials)</td><td>{tutWords.toLocaleString()}</td></tr>
+      <tr><td>Total words</td><td>{totalWords.toLocaleString()}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Most linked-to pages</h2>
+  {byBacklinks.length > 0 ? (
+    <table border="1">
+      <thead><tr><th>Page</th><th>Inbound links</th></tr></thead>
+      <tbody>
+        {byBacklinks.map(({ page, count }) => (
+          <tr>
+            <td><a href={`/wiki/${page.id}/`}>{page.data.title}</a></td>
+            <td>{count}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ) : <p>None yet.</p>}
+
+  <h2>Top tags</h2>
+  {tagGroups.length > 0 ? (
+    <table border="1">
+      <thead><tr><th>Tag</th><th>Pages</th></tr></thead>
+      <tbody>
+        {tagGroups.map((g) => (
+          <tr>
+            <td><a href={`/tags/${g.slug}/`}>{g.tag}</a></td>
+            <td>{g.pages.length}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ) : <p>None yet.</p>}
+
+  <h2>Orphaned wiki pages</h2>
+  <p>Pages with no inbound links from other wiki pages.</p>
+  {orphans.length > 0 ? (
+    <ul>
+      {orphans.map((p) => (
+        <li><a href={`/wiki/${p.id}/`}>{p.data.title}</a></li>
+      ))}
+    </ul>
+  ) : <p>None — all pages are linked.</p>}
+
+  <h2>Tutorial series</h2>
+  <table border="1">
+    <thead><tr><th>Series</th><th>Lessons</th><th>Words</th></tr></thead>
+    <tbody>
+      {series.map((s) => {
+        const slug = seriesSlug(s.id);
+        const sl = lessons.filter((l) => l.id.startsWith(slug + '/'));
+        const sw = sl.reduce((n, l) => n + countWords(l.body ?? ''), 0);
+        return (
+          <tr>
+            <td><a href={`/tutorial/${slug}/`}>{s.data.title}</a></td>
+            <td>{sl.length}</td>
+            <td>{sw.toLocaleString()}</td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</WikiLayout>
