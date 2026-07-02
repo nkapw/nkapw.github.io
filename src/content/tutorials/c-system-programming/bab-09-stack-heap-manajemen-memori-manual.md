@@ -1,129 +1,128 @@
 ---
-title: "Bab 9 — Stack vs Heap & Manajemen Memori Manual"
-description: "Sampai sekarang, sebagian besar data yang kita pakai ukurannya sudah jelas saat kode ditulis: int x;, int arr[5];, atau sebuah struct. Namun dalam program nyata,..."
-tags: [c, system-programming]
+title: "Bab 9 - Stack, Heap, dan Manajemen Memori Manual"
+description: "Dalam C, pengelolaan memori adalah bagian langsung dari tanggung jawab programmer. Bahasa ini tidak menyediakan garbage collector yang otomatis membebaskan memori..."
+tags: [c, systems-programming]
 order: 9
-updated: 2026-06-21
+updated: 2026-07-02
+---
+Dalam C, pengelolaan memori adalah bagian langsung dari tanggung jawab programmer. Bahasa ini tidak menyediakan *garbage collector* yang otomatis membebaskan memori yang tidak lagi digunakan. Setiap alokasi dinamis harus dirancang dengan jelas, digunakan dengan hati-hati, lalu dibebaskan pada waktu yang tepat.
+
+Pada bab sebelumnya, sebagian besar data dibuat dengan ukuran yang sudah diketahui saat kode ditulis, misalnya `int x`, `int arr[5]`, atau sebuah `struct`. Dalam program nyata, ukuran data sering baru diketahui saat program berjalan. Program dapat membaca file dengan jumlah baris yang tidak pasti, menerima masukan pengguna dengan panjang berbeda, atau mengelola koneksi yang jumlahnya berubah selama proses berjalan.
+
+Kondisi seperti itu membutuhkan alokasi memori dinamis. Di C, alokasi ini dilakukan melalui heap dengan fungsi seperti `malloc`, `calloc`, `realloc`, dan `free`.
+
 ---
 
-> "Di C, kamu mengelola memori sendiri. Tidak ada garbage collector yang otomatis membereskan alokasi; kamu yang meminta, memakai, lalu mengembalikannya."
+## 9.1 Peta Memori Program
 
-Sampai sekarang, sebagian besar data yang kita pakai ukurannya sudah jelas saat kode ditulis: `int x;`, `int arr[5];`, atau sebuah struct. Namun dalam program nyata, ukuran data sering baru diketahui saat program berjalan. Misalnya, program membaca file dengan jumlah baris yang tidak diketahui, atau server menampung jumlah koneksi yang berubah-ubah.
-
-Untuk kasus seperti itu, C menyediakan **dynamic memory allocation**, yaitu meminta memori dari **heap** saat runtime. Bab ini membahas cara memakai heap, cara kerja allocator di balik layar, dan bug memori yang paling sering muncul ketika alokasi tidak dikelola dengan disiplin.
-
----
-
-## 9.1 Peta memori sebuah program: empat area besar
-
-Saat program berjalan, OS memberinya ruang memori virtual yang terbagi menjadi beberapa area memori. Peta mentalnya seperti ini:
+Saat program berjalan, sistem operasi menyediakan ruang memori virtual untuk proses tersebut. Ruang ini biasanya dibagi menjadi beberapa wilayah utama.
 
 ```
-Alamat TINGGI
+Alamat tinggi
         +--------------------------+
         |        STACK             |  <- variabel lokal, parameter, return address
-        |    (tumbuh ke BAWAH)     |     (otomatis; Bab 4)
+        |    tumbuh ke bawah       |
         |           |              |
         |           v              |
         |                          |
-        |    (ruang kosong)        |
+        |    ruang kosong          |
         |                          |
         |           ^              |
         |           |              |
-        |        HEAP              |  <- memori dinamis (malloc/free)
-        |    (tumbuh ke ATAS)      |     (manual; bab ini)
+        |        HEAP              |  <- memori dinamis
+        |    tumbuh ke atas        |
         +--------------------------+
-        |   BSS  (data tak diinit) |  <- variabel global/static tanpa nilai awal (=0)
+        |   BSS                    |  <- global dan static tanpa nilai awal
         +--------------------------+
-        |  DATA  (data terinit)    |  <- variabel global/static dengan nilai awal
+        |   DATA                   |  <- global dan static dengan nilai awal
         +--------------------------+
-        |   TEXT / CODE            |  <- instruksi program (machine code; read-only)
-        |                          |     juga string literal "..." (Bab 5!)
+        |   TEXT / CODE            |  <- instruksi program dan string literal
         +--------------------------+
-Alamat RENDAH
+Alamat rendah
 ```
 
-Empat area utamanya:
+Wilayah utama memori program dapat dipahami sebagai berikut.
 
-- **Text (Code)** — machine code program hasil compile dari Bab 1, biasanya read-only. String literal `"..."` juga berada di sini; karena itu `char *b = "Halo"; b[0]='x';` bisa crash (Bab 5).
-- **Data & BSS** — variabel **global** dan **static**. `Data` untuk yang punya nilai awal; `BSS` untuk yang tidak punya nilai awal dan otomatis di-nol-kan. Area ini hidup selama program berjalan.
-- **Heap** — memori dinamis yang kamu minta lewat `malloc`. **Tumbuh ke atas**, yaitu ke arah alamat yang makin besar. Inilah fokus bab ini.
-- **Stack** — variabel lokal dan frame fungsi (Bab 4). **Tumbuh ke bawah**, yaitu ke arah alamat yang makin kecil.
+- **Text atau Code** berisi instruksi program hasil kompilasi. Wilayah ini umumnya bersifat hanya-baca. String literal seperti `"Halo"` juga dapat berada di wilayah ini, sehingga mengubah isi string literal melalui pointer menghasilkan perilaku tidak terdefinisi.
+- **Data dan BSS** berisi variabel global dan `static`. Data digunakan untuk variabel yang memiliki nilai awal, sedangkan BSS digunakan untuk variabel yang tidak diberi nilai awal dan akan diisi nol.
+- **Heap** digunakan untuk memori dinamis yang dialokasikan saat program berjalan. Memori di heap dikelola secara manual oleh programmer.
+- **Stack** digunakan untuk frame fungsi, parameter, alamat kembali, dan variabel lokal. Memori stack dikelola otomatis ketika fungsi dipanggil dan selesai.
 
-Heap dan stack tumbuh saling mendekat dari dua ujung ruang kosong di tengah. Pada sistem modern dengan virtual memory, detailnya ditangani lebih canggih, tetapi gambaran ini tetap berguna sebagai model awal.
+Stack dan heap biasanya digambarkan tumbuh dari arah yang berlawanan. Model ini berguna untuk memahami konsep dasar, walaupun implementasi sistem operasi modern dapat lebih kompleks karena adanya memori virtual, proteksi halaman, dan strategi alokasi yang berbeda.
 
 ---
 
-## 9.2 Kenapa heap? Batasan stack
+## 9.2 Mengapa Heap Diperlukan
 
-Kenapa tidak memakai stack saja untuk semuanya? Stack punya dua keterbatasan penting (ingat Bab 4):
+Stack sangat cepat dan sederhana, tetapi memiliki batasan penting.
 
-1. **Umur terikat fungsi.** Variabel lokal mati saat fungsinya `return`, karena frame fungsi di-pop. Kamu tidak bisa membuat data di sebuah fungsi lalu memakainya setelah fungsi itu selesai, kecuali data tersebut ditempatkan di heap. Ini solusi untuk bahaya "return alamat variabel lokal" dari Bab 4.9.
-2. **Ukuran harus diketahui dan terbatas.** Ukuran array stack biasanya harus sudah jelas, atau memakai VLA yang berisiko. Total stack juga terbatas, sering hanya beberapa MB. Array terlalu besar bisa menyebabkan stack overflow.
+1. **Umur data terikat pada fungsi.** Variabel lokal tidak lagi valid setelah fungsi selesai. Jika sebuah data harus tetap hidup setelah fungsi mengembalikan nilai, data tersebut tidak boleh disimpan sebagai variabel lokal biasa.
+2. **Ukuran stack terbatas.** Stack biasanya jauh lebih kecil daripada total memori yang tersedia. Array besar di stack dapat menyebabkan *stack overflow*.
+3. **Ukuran data sering baru diketahui saat runtime.** Program sering membutuhkan jumlah elemen yang bergantung pada masukan pengguna, ukuran file, atau kondisi yang baru muncul saat program berjalan.
 
-Heap memecahkan keduanya:
+Heap menyelesaikan masalah tersebut dengan memberi ruang memori yang dapat dialokasikan secara dinamis dan tetap hidup sampai dibebaskan secara eksplisit.
 
-| | **Stack** | **Heap** |
+| Aspek | Stack | Heap |
 |---|---|---|
-| Alokasi | otomatis (masuk fungsi) | manual (`malloc`) |
-| Dibebaskan | otomatis (keluar fungsi) | manual (`free`) — tanggung jawabmu |
-| Umur | selama fungsi hidup | sampai kamu `free` (bisa lintas fungsi) |
-| Ukuran | terbatas (MB), tetap | besar (≈ RAM), bisa ditentukan saat runtime |
-| Kecepatan | sangat cepat (geser pointer) | lebih lambat (allocator harus cari blok) |
+| Alokasi | Otomatis saat fungsi berjalan | Manual dengan `malloc`, `calloc`, atau `realloc` |
+| Pembebasan | Otomatis saat fungsi selesai | Manual dengan `free` |
+| Umur data | Selama frame fungsi masih aktif | Sampai dibebaskan dengan `free` |
+| Ukuran | Terbatas dan biasanya kecil | Lebih besar dan fleksibel |
+| Kecepatan | Sangat cepat | Lebih lambat karena dikelola allocator |
 
-Trade-off-nya jelas: heap memberi fleksibilitas, baik untuk ukuran dinamis maupun umur data yang lebih panjang, tetapi dibayar dengan biaya performa dan **tanggung jawab manual**.
-
-Artinya, heap bukan pengganti stack untuk semua hal. Untuk data kecil yang umurnya jelas hanya selama fungsi berjalan, stack tetap pilihan paling sederhana. Heap dipakai ketika kamu memang butuh ukuran yang baru diketahui saat runtime, data yang hidup melewati batas fungsi, atau struktur data yang tumbuh dan menyusut selama program berjalan.
+Heap memberi fleksibilitas, tetapi juga menambah tanggung jawab. Kesalahan kecil dalam pengelolaan heap dapat menyebabkan *memory leak*, korupsi memori, *use-after-free*, atau *crash* yang sulit dilacak.
 
 ---
 
-## 9.3 `malloc` & `free`: meminjam dan mengembalikan
+## 9.3 `malloc` dan `free`
 
-Fungsi inti ada di `<stdlib.h>`:
+Fungsi dasar untuk alokasi dan pembebasan memori berada di `<stdlib.h>`.
 
 ```c
-void *malloc(size_t size);   // minta 'size' byte; kembalikan pointer ke awalnya (atau NULL kalau gagal)
-void  free(void *ptr);       // kembalikan memori yang dulu di-malloc
+void *malloc(size_t size);
+void  free(void *ptr);
 ```
 
-Contoh dasar — mengalokasikan satu `int` di heap:
+`malloc` meminta sejumlah byte dari heap dan mengembalikan pointer ke awal blok memori tersebut. Jika alokasi gagal, `malloc` mengembalikan `NULL`.
+
+`free` mengembalikan blok memori yang sebelumnya diperoleh dari fungsi alokasi dinamis. Pointer yang diberikan ke `free` harus pointer yang valid dan berasal dari alokasi yang sesuai.
+
+Contoh alokasi satu `int` di heap.
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 
 int main(void) {
-    int *p = malloc(sizeof(int));   // minta 4 byte di heap
-    if (p == NULL) {                // selalu cek: malloc bisa gagal
+    int *p = malloc(sizeof(int));
+    if (p == NULL) {
         fprintf(stderr, "alokasi gagal\n");
         return 1;
     }
 
-    *p = 42;                        // pakai memorinya seperti pointer biasa
-    printf("%d\n", *p);             // 42
+    *p = 42;
+    printf("%d\n", *p);
 
-    free(p);                        // kembalikan saat selesai
-    p = NULL;                       // praktik baik: hindari dangling (Bagian 9.7)
+    free(p);
+    p = NULL;
     return 0;
 }
 ```
 
-Perhatikan poin-poin pentingnya:
+Beberapa hal penting perlu diperhatikan.
 
-- **`malloc(sizeof(int))`** meminta sejumlah byte. Pakai `sizeof` supaya portable; jangan menulis angka `4` langsung. `malloc` mengembalikan `void *` (Bab 6.8), yaitu pointer generik karena ia tidak tahu tipe data apa yang akan kamu simpan. Di C, hasil ini otomatis dikonversi ke tipe pointer tujuan, jadi tidak perlu cast eksplisit.
-- **Cek `NULL`.** `malloc` bisa **gagal** ketika memori tidak tersedia dan mengembalikan `NULL`. Memakai hasil `malloc` tanpa cek membuka kemungkinan dereference `NULL` dan crash. Biasakan selalu cek.
-- **`free(p)`** mengembalikan memori ke allocator agar bisa dipakai ulang. Kalau lupa `free`, terjadi **memory leak** (Bagian 9.7).
-- **`p = NULL` setelah `free`** mencegah `p` tetap menjadi dangling pointer yang menunjuk memori mati (Bagian 9.7).
+- Gunakan `sizeof` saat menentukan ukuran alokasi. Hindari menulis angka ukuran tipe secara langsung karena ukuran tipe dapat berbeda antarplatform.
+- Selalu periksa apakah hasil `malloc` bernilai `NULL`. Mengakses pointer `NULL` menyebabkan perilaku tidak terdefinisi dan biasanya membuat program berhenti.
+- Setiap blok yang berhasil dialokasikan harus dibebaskan dengan `free` tepat satu kali.
+- Setelah `free(p)`, mengisi `p` dengan `NULL` membantu mencegah penggunaan pointer lama secara tidak sengaja.
 
-`malloc` bisa dibayangkan seperti menyewa ruang. Kamu meminta ukuran tertentu, lalu mendapat kunci berupa pointer ke ruang itu. Saat selesai, kamu harus mengembalikannya dengan `free`. Jika tidak, ruang itu tetap tercatat terpakai walaupun programmu sudah tidak punya cara berguna untuk memakainya.
-
-Perhatikan juga bahwa `free` tidak menghapus variabel pointer-nya. `p` tetap variabel lokal biasa yang menyimpan sebuah alamat. Yang berubah adalah status blok heap di belakang alamat itu: setelah `free`, blok tersebut bukan lagi milik kode yang memegang `p`.
+Di C, hasil `malloc` bertipe `void *`. Pointer ini dapat dikonversi otomatis ke tipe pointer lain, sehingga cast eksplisit tidak diperlukan dalam kode C.
 
 ---
 
-## 9.4 Alokasi dinamis yang sesungguhnya: array berukuran runtime
+## 9.4 Alokasi Array dengan Ukuran Runtime
 
-Kekuatan heap terasa saat ukuran data **baru diketahui saat runtime**:
+Salah satu penggunaan paling umum heap adalah membuat array yang ukurannya baru diketahui saat program berjalan.
 
 ```c
 #include <stdio.h>
@@ -131,51 +130,59 @@ Kekuatan heap terasa saat ukuran data **baru diketahui saat runtime**:
 
 int main(void) {
     int n;
+
     printf("Berapa banyak angka? ");
-    scanf("%d", &n);                       // n baru diketahui SAAT runtime
+    if (scanf("%d", &n) != 1 || n <= 0) {
+        fprintf(stderr, "masukan tidak valid\n");
+        return 1;
+    }
 
-    int *arr = malloc(n * sizeof(int));    // alokasi array sebesar n int
-    if (arr == NULL) return 1;
+    int *arr = malloc((size_t)n * sizeof(int));
+    if (arr == NULL) {
+        fprintf(stderr, "alokasi gagal\n");
+        return 1;
+    }
 
-    for (int i = 0; i < n; i++)
-        arr[i] = i * i;                    // pakai seperti array biasa (ingat arr[i]=*(arr+i))
+    for (int i = 0; i < n; i++) {
+        arr[i] = i * i;
+    }
 
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         printf("%d ", arr[i]);
+    }
     printf("\n");
 
-    free(arr);                             // satu free untuk seluruh blok
+    free(arr);
     return 0;
 }
 ```
 
-Setelah `malloc`, `arr` dipakai persis seperti array biasa (`arr[i]`). Seperti di Bab 5 dan 6, `arr[i]` sama dengan `*(arr+i)`, dan `arr` hanyalah pointer ke blok memori contiguous.
+Setelah alokasi berhasil, `arr` dapat digunakan seperti array biasa. Ekspresi `arr[i]` tetap setara dengan `*(arr + i)`. Perbedaannya terletak pada lokasi dan tanggung jawab pengelolaan memori. Blok tersebut berada di heap dan harus dibebaskan secara manual.
 
-Bedanya, blok ini berada di heap, ukurannya `n`, dan kamu yang bertanggung jawab mem-`free`-nya.
-
-> **Hati-hati overflow perkalian:** `n * sizeof(int)` bisa overflow kalau `n` sangat besar (Bab 2). Akibatnya, alokasi bisa lebih kecil dari yang kamu kira dan berujung buffer overflow. Untuk array, `calloc` (Bagian 9.5) lebih aman karena ia mengecek overflow perkalian.
+Perhatikan risiko overflow pada perhitungan ukuran. Ekspresi `n * sizeof(int)` dapat overflow jika `n` sangat besar. Jika overflow terjadi, program dapat mengalokasikan blok yang lebih kecil dari kebutuhan sebenarnya, lalu menulis melewati batas blok. Untuk alokasi array, `calloc` sering lebih aman karena menerima jumlah elemen dan ukuran elemen secara terpisah.
 
 ---
 
-## 9.5 Saudara `malloc`: `calloc`, `realloc`, dan teman-temannya
+## 9.5 `calloc` dan `realloc`
+
+Selain `malloc`, C menyediakan fungsi alokasi lain yang penting.
 
 ```c
-void *calloc(size_t jumlah, size_t ukuran);     // alokasi & NOL-kan
-void *realloc(void *ptr, size_t ukuran_baru);   // ubah ukuran alokasi
+void *calloc(size_t jumlah, size_t ukuran);
+void *realloc(void *ptr, size_t ukuran_baru);
 ```
 
-**`calloc(n, size)`** mengalokasikan array berisi `n` elemen, masing-masing berukuran `size`, lalu **menginisialisasi semua byte ke 0**. Ini berbeda dari `malloc`, yang isi awalnya tidak terdefinisi. Selain itu, `calloc` mengecek overflow `n * size` secara internal.
+`calloc` mengalokasikan ruang untuk sejumlah elemen dan mengisi seluruh byte dengan nilai nol.
 
 ```c
-int *arr = calloc(n, sizeof(int));   // n int, semua sudah 0
+int *arr = calloc((size_t)n, sizeof(int));
 ```
 
-> **Jebakan penting:** memori dari `malloc` **tidak** otomatis nol. Isinya adalah byte yang tidak terdefinisi. Membaca memori hasil `malloc` sebelum menulisinya berarti membaca nilai tidak valid, dan dalam beberapa kasus bisa membuka kebocoran data. Kalau butuh nilai awal nol, pakai `calloc` atau `memset(p, 0, size)`.
+Berbeda dari `calloc`, memori dari `malloc` tidak otomatis berisi nol. Isinya tidak terdefinisi sampai program menuliskan nilai ke dalamnya. Membaca memori hasil `malloc` sebelum diinisialisasi adalah bug.
 
-**`realloc(ptr, ukuran_baru)`** mengubah ukuran blok yang sudah dialokasikan, baik memperbesar maupun memperkecil. Ini berguna untuk array yang tumbuh, misalnya saat membaca data yang jumlahnya belum diketahui. Cara kerjanya:
+`realloc` digunakan untuk mengubah ukuran blok yang sudah dialokasikan. Fungsi ini dapat memperbesar blok di tempat yang sama, atau memindahkan isi lama ke blok baru lalu membebaskan blok lama.
 
-- Kalau bisa, ia memperluas blok di tempat.
-- Kalau tidak, ia **mengalokasikan blok baru yang lebih besar, menyalin isi lama ke sana, lalu mem-`free` yang lama**, dan mengembalikan pointer baru. Pointer baru itu **mungkin berbeda** dari yang lama.
+Contoh dynamic array sederhana.
 
 ```c
 #include <stdio.h>
@@ -183,163 +190,203 @@ int *arr = calloc(n, sizeof(int));   // n int, semua sudah 0
 
 int main(void) {
     int kapasitas = 2;
-    int *arr = malloc(kapasitas * sizeof(int));
     int jumlah = 0;
+    int *arr = malloc((size_t)kapasitas * sizeof(int));
+
+    if (arr == NULL) {
+        fprintf(stderr, "alokasi gagal\n");
+        return 1;
+    }
 
     for (int x = 1; x <= 5; x++) {
-        if (jumlah == kapasitas) {              // penuh? perbesar dua kali lipat
+        if (jumlah == kapasitas) {
             kapasitas *= 2;
-            int *baru = realloc(arr, kapasitas * sizeof(int));
-            if (baru == NULL) { free(arr); return 1; }  // realloc gagal: arr lama masih valid
-            arr = baru;                          // arr mungkin pindah alamat
+
+            int *baru = realloc(arr, (size_t)kapasitas * sizeof(int));
+            if (baru == NULL) {
+                free(arr);
+                return 1;
+            }
+
+            arr = baru;
         }
+
         arr[jumlah++] = x;
     }
-    for (int i = 0; i < jumlah; i++) printf("%d ", arr[i]);
+
+    for (int i = 0; i < jumlah; i++) {
+        printf("%d ", arr[i]);
+    }
     printf("\n");
+
     free(arr);
     return 0;
 }
 ```
 
-Pola "double the capacity" adalah cara umum membangun dynamic array, seperti `vector` di C++ atau `list` di Python di balik layar. Kapasitas tidak dinaikkan satu per satu karena itu akan membuat program terlalu sering memanggil allocator dan menyalin isi lama. Dengan menggandakan kapasitas, biaya penyalinan dibayar sesekali, bukan pada setiap elemen baru.
+Jangan langsung menulis `arr = realloc(arr, ukuran_baru)`. Jika `realloc` gagal, fungsi ini mengembalikan `NULL` dan blok lama tetap valid. Jika hasilnya langsung ditimpa ke `arr`, pointer lama hilang dan memori tersebut tidak dapat dibebaskan. Gunakan variabel sementara seperti `baru`.
 
-Ada dua jebakan `realloc`. Pertama, **jangan** menulis `arr = realloc(arr, ...)` langsung. Kalau gagal dan mengembalikan `NULL`, pointer lama hilang sehingga terjadi leak. Pakai variabel sementara seperti `baru`. Kedua, setelah `realloc` berhasil, pointer lama mungkin sudah tidak valid. Selalu pakai pointer baru yang dikembalikan.
-
-Detail ini penting karena `realloc` adalah operasi yang terlihat sederhana tetapi memindahkan ownership alamat. Setelah sukses, blok lama dianggap sudah diurus oleh allocator, baik diperbesar di tempat maupun dipindahkan ke alamat baru. Kode setelahnya harus menganggap hanya pointer hasil `realloc` yang sah.
+Setelah `realloc` berhasil, alamat blok dapat berubah. Semua akses berikutnya harus menggunakan pointer baru.
 
 ---
 
-## 9.6 Cara kerja allocator di balik layar
+## 9.6 Cara Kerja Allocator
 
-Apa yang sebenarnya terjadi saat kamu memanggil `malloc`? Siapa yang mengelola heap?
+`malloc` bukan system call langsung. Fungsi ini disediakan oleh C standard library. Di balik pemanggilan `malloc`, library menggunakan allocator untuk mengelola wilayah heap di user space.
 
-### Kernel memberi area besar, allocator membagi-bagi
+Allocator biasanya meminta wilayah memori yang lebih besar dari kernel menggunakan mekanisme seperti `brk`, `sbrk`, atau `mmap`. Setelah wilayah tersebut tersedia, allocator membaginya menjadi blok-blok yang lebih kecil sesuai permintaan program.
 
-`malloc` **bukan** syscall langsung. Ia bagian dari **C standard library** (libc) dan berjalan di **user space**. Secara garis besar, libc melakukan dua hal:
+Pendekatan ini mengurangi jumlah pemanggilan ke kernel. Pemanggilan kernel relatif mahal, sehingga allocator tidak meminta memori ke kernel untuk setiap alokasi kecil.
 
-1. **Meminta area besar dari kernel** sesekali, lewat syscall seperti `brk`/`sbrk` untuk menggeser "batas" heap, atau `mmap` untuk memetakan area memori. Memanggil kernel relatif mahal (Bab 19), jadi libc tidak ingin melakukannya untuk setiap `malloc`.
-2. **Membagi-bagi area itu sendiri.** `malloc` dan `free` mengelola area tersebut di user space: membaginya menjadi blok-blok kecil sesuai permintaan, lalu melacak mana yang terpakai dan mana yang bebas.
+### Metadata Blok
 
-Analogi sederhananya, kernel menyediakan area besar, lalu allocator membaginya menjadi ruang-ruang kecil untuk kode-mu. Karena itu, program tidak perlu masuk ke kernel setiap kali butuh alokasi kecil.
+`free(p)` hanya menerima pointer, tetapi tetap dapat mengetahui ukuran blok yang harus dibebaskan. Hal ini terjadi karena allocator menyimpan metadata untuk setiap blok alokasi.
 
-### Metadata: kenapa `free(p)` cukup tahu `p` saja
-
-`free(p)` hanya menerima pointer, tanpa ukuran. Bagaimana ia tahu harus membebaskan berapa byte? Allocator menyimpan **metadata**, biasanya **tepat sebelum** blok yang ia kembalikan kepadamu.
-
-Saat `malloc(32)`, allocator biasanya mengambil sedikit lebih banyak dari 32 byte, menulis informasi seperti "ukuran blok ini = 32, status = terpakai" di header tersembunyi, lalu memberimu pointer ke bagian setelah header itu.
+Metadata biasanya diletakkan di dekat blok yang diberikan ke program. Metadata dapat menyimpan ukuran blok, status blok, dan informasi internal lain yang diperlukan allocator.
 
 ```
-     header tersembunyi        blok yang kamu pakai
-   +--------------------+----------------------------------+
-   | ukuran, flag, dll  | <- pointer dari malloc ada di sini|
-   +--------------------+----------------------------------+
-   ^                    ^
- allocator tahu ini    p (yang kamu terima)
+   metadata internal        blok yang digunakan program
+ +------------------+--------------------------------+
+ | ukuran dan flag  | data yang diakses melalui p    |
+ +------------------+--------------------------------+
+                    ^
+                    p
 ```
 
-Saat `free(p)`, allocator melihat sedikit ke belakang dari `p` untuk membaca header, sehingga tahu ukuran bloknya. Ini menjelaskan dua hal:
+Konsekuensinya penting.
 
-1. **Menulis melewati batas blok** (buffer overflow di heap) bisa merusak metadata blok tetangga. Hasilnya bisa berupa crash yang sulit dilacak atau celah keamanan (heap corruption).
-2. Kamu **hanya boleh `free` pointer yang persis dikembalikan `malloc`**, bukan `free(p+1)`. Kalau tidak, allocator membaca "header" di tempat yang salah.
+1. Menulis melewati batas blok heap dapat merusak metadata atau blok lain. Kesalahan ini dapat menyebabkan crash, data rusak, atau celah keamanan.
+2. Pointer yang diberikan ke `free` harus persis pointer yang dikembalikan oleh fungsi alokasi. Memanggil `free(p + 1)` atau `free` pada pointer yang bukan hasil alokasi dinamis adalah kesalahan serius.
 
-### Free list & fragmentation
+### Free List dan Fragmentation
 
-Saat kamu `free`, blok itu biasanya tidak langsung dikembalikan ke kernel. Blok tersebut ditandai "bebas" dan dimasukkan ke **free list** allocator, siap dipakai ulang oleh `malloc` berikutnya.
+Saat `free` dipanggil, allocator tidak selalu langsung mengembalikan memori ke kernel. Blok tersebut biasanya ditandai sebagai bebas dan dapat digunakan kembali oleh alokasi berikutnya.
 
-Karena blok dialokasikan dan dibebaskan dengan ukuran beragam, lama-lama heap bisa berlubang-lubang: total ruang bebas mungkin cukup, tetapi terpecah menjadi kepingan kecil sehingga tidak ada satu blok yang cukup besar untuk permintaan baru. Ini disebut **fragmentation**.
+Seiring waktu, heap dapat memiliki banyak blok kosong dengan ukuran berbeda. Total ruang kosong mungkin cukup besar, tetapi terpecah menjadi bagian-bagian kecil yang tidak sesuai dengan permintaan alokasi tertentu. Kondisi ini disebut *fragmentation*.
 
-Allocator modern seperti glibc malloc, jemalloc, dan tcmalloc punya strategi untuk meminimalkannya. Namun memahami konsepnya membantu menjelaskan kenapa pola alokasi tertentu bisa boros.
+Allocator modern seperti glibc malloc, jemalloc, dan tcmalloc memiliki strategi untuk mengurangi fragmentation. Namun, pola alokasi program tetap memengaruhi efisiensi penggunaan memori.
 
 ---
 
-## 9.7 Tiga bug besar manajemen memori
+## 9.7 Kesalahan Umum dalam Manajemen Memori
 
-Tiga bug berikut adalah sumber masalah klasik di program C. Karena itu, tools seperti Valgrind dan ASan (Bab 20) penting untuk dikuasai.
+### Memory Leak
 
-### Bug 1: Memory leak (lupa `free`)
-
-Kamu memanggil `malloc`, tetapi tidak pernah memanggil `free`. Memori itu tetap dianggap terpakai walaupun kamu sudah kehilangan pointernya.
+*Memory leak* terjadi ketika program mengalokasikan memori tetapi tidak pernah membebaskannya.
 
 ```c
 void bocor(void) {
     int *p = malloc(1000);
-    // ... lupa free(p)
-}                          // p (pointer di stack) hilang; blok heap bocor
+    if (p == NULL) {
+        return;
+    }
+
+    /* p tidak dibebaskan sebelum fungsi selesai */
+}
 ```
 
-Untuk program kecil yang langsung selesai, OS akan membersihkan semua memori program saat exit, sehingga leak kecil mungkin tidak terasa. Namun untuk program yang berjalan lama, seperti server, daemon, atau GUI, leak akan menumpuk: memori habis, program melambat, lalu bisa mati. Leak adalah salah satu bug paling umum di C.
+Saat fungsi selesai, variabel lokal `p` hilang. Jika tidak ada pointer lain yang menyimpan alamat blok tersebut, program tidak lagi dapat memanggil `free` untuk blok itu.
 
-### Bug 2: Dangling pointer (pakai setelah `free`)
+Pada program kecil yang segera selesai, leak kecil mungkin tidak terlihat karena sistem operasi membersihkan memori proses saat program berakhir. Pada program yang berjalan lama seperti server, daemon, atau aplikasi GUI, leak dapat terus bertambah sampai memori habis.
 
-Kamu `free` memori, tapi masih memegang & memakai pointernya (**use-after-free**).
+### Dangling Pointer dan Use-After-Free
+
+*Dangling pointer* adalah pointer yang masih menyimpan alamat memori yang tidak lagi valid. Salah satu penyebab paling umum adalah menggunakan pointer setelah `free`.
 
 ```c
 int *p = malloc(sizeof(int));
+if (p == NULL) {
+    return 1;
+}
+
 *p = 5;
-free(p);                   // memori dikembalikan ke allocator
-printf("%d\n", *p);        // dangling: membaca memori yang sudah "mati" -> UB
-*p = 10;                   // lebih parah: menulis ke memori yang mungkin sudah dipakai blok lain
+free(p);
+
+printf("%d\n", *p);
+*p = 10;
 ```
 
-Setelah `free(p)`, `p` menjadi **dangling pointer**: menunjuk memori yang tidak lagi sah untuk dipakai. Allocator mungkin sudah memberikan blok itu ke `malloc` lain. Use-after-free adalah salah satu **celah keamanan serius** di dunia nyata, termasuk pada browser dan kernel.
+Setelah `free(p)`, blok memori tersebut tidak lagi menjadi milik program pada level logika alokasi. Allocator dapat memberikannya lagi untuk alokasi lain. Membaca atau menulis melalui `p` setelah `free` adalah perilaku tidak terdefinisi.
 
-Pertahanan sederhana: set `p = NULL` segera setelah `free(p)`. Jika pointer itu dipakai lagi tanpa sengaja, program cenderung crash dengan dereference `NULL` yang lebih jelas, bukan korupsi memori diam-diam.
-
-### Bug 3: Double free (free dua kali)
-
-Mem-`free` pointer yang sama dua kali.
+Praktik yang umum digunakan adalah mengisi pointer dengan `NULL` setelah `free`.
 
 ```c
 free(p);
-free(p);                   // double free -> merusak struktur internal allocator
+p = NULL;
 ```
 
-Karena `free` memanipulasi metadata dan free list, mem-`free` blok yang sudah bebas bisa mengacaukan struktur internal allocator. Hasilnya bisa berupa crash atau celah keamanan.
+Dengan begitu, penggunaan tidak sengaja lebih mudah terdeteksi karena akses melalui `NULL` biasanya langsung gagal, sementara akses melalui dangling pointer dapat merusak data secara diam-diam.
 
-Di sini, `p = NULL` setelah `free` juga membantu. `free(NULL)` itu **legal dan aman**; ia tidak melakukan apa-apa. Jadi setelah pointer diubah menjadi `NULL`, pemanggilan `free(p)` berikutnya tidak lagi menjadi double free.
+### Double Free
 
-> **Tiga aturan yang menutup mayoritas masalah:**
-> 1. Setiap `malloc`/`calloc`/`realloc` harus berpasangan dengan **tepat satu** `free`.
-> 2. Set pointer ke **`NULL` setelah `free`**.
-> 3. Saat development, jalankan dengan `valgrind ./program` atau compile dengan `-fsanitize=address` (Bab 20). Tools ini mendeteksi leak, use-after-free, double-free, dan overflow secara otomatis. Jangan menebak; biarkan tools yang menemukan.
+*Double free* terjadi ketika pointer yang sama dibebaskan lebih dari satu kali.
+
+```c
+free(p);
+free(p);
+```
+
+Kesalahan ini dapat merusak struktur internal allocator. Dampaknya dapat berupa crash, korupsi memori, atau celah keamanan.
+
+`free(NULL)` aman dan tidak melakukan apa pun. Karena itu, mengisi pointer dengan `NULL` setelah `free` dapat membantu mencegah double free pada pointer yang sama.
+
+Aturan praktis yang perlu diterapkan.
+
+1. Setiap alokasi yang berhasil harus memiliki satu jalur pembebasan yang jelas.
+2. Jangan menggunakan pointer setelah bloknya dibebaskan.
+3. Jangan membebaskan pointer yang sama lebih dari sekali.
+4. Gunakan Valgrind atau AddressSanitizer saat pengembangan untuk mendeteksi leak, use-after-free, double free, dan overflow.
 
 ---
 
-## 9.8 Mengembalikan memori dari fungsi (solusi bahaya Bab 4.9)
+## 9.8 Mengembalikan Memori dari Fungsi
 
-Ingat Bab 4: mengembalikan `&x`, yaitu alamat variabel lokal, berbahaya karena `x` mati saat fungsi `return`. Heap menyelesaikan masalah ini karena memori heap **tidak terikat umur fungsi**:
+Mengembalikan alamat variabel lokal adalah kesalahan karena variabel tersebut tidak lagi valid setelah fungsi selesai.
+
+```c
+int *salah(void) {
+    int x = 42;
+    return &x;
+}
+```
+
+Jika data harus tetap hidup setelah fungsi selesai, alokasikan data tersebut di heap.
 
 ```c
 #include <stdlib.h>
 
-// bahaya (Bab 4): mengembalikan alamat lokal yang akan mati
-int *salah(void) {
-    int x = 42;
-    return &x;          // dangling: x mati saat return
-}
-
-// benar: memori heap hidup sampai di-free, melampaui fungsi
 int *benar(void) {
     int *p = malloc(sizeof(int));
-    if (p) *p = 42;
-    return p;           // valid; pemanggil yang nanti harus free
+    if (p != NULL) {
+        *p = 42;
+    }
+
+    return p;
 }
 ```
 
-Namun ini memunculkan pertanyaan desain penting: **siapa yang bertanggung jawab mem-`free`?**
+Fungsi di atas mengembalikan pointer ke memori heap. Pemanggil harus memeriksa apakah hasilnya `NULL`, menggunakan nilainya, lalu membebaskannya dengan `free`.
 
-Saat sebuah fungsi mengembalikan pointer hasil `malloc`, kontraknya harus jelas: "pemanggil harus mem-`free` hasil ini." Ini disebut **ownership** atau kepemilikan memori. Karena C tidak punya mekanisme otomatis, ownership adalah **konvensi** yang harus didokumentasikan dan dipatuhi.
+```c
+int *nilai = benar();
+if (nilai == NULL) {
+    return 1;
+}
 
-Banyak library menulis kontrak semacam ini secara eksplisit: fungsi tertentu mengembalikan memori yang harus dibebaskan dengan `xxx_free()`. Kebiasaan berpikir tentang ownership sejak awal akan membuat desain fungsi lebih jelas dan lebih aman.
+printf("%d\n", *nilai);
+free(nilai);
+nilai = NULL;
+```
 
-Ownership juga membantu membaca kode. Jika sebuah fungsi menerima pointer, tanyakan apakah fungsi itu hanya meminjam data sementara, mengambil alih tanggung jawab `free`, atau justru mengembalikan memori baru yang harus dibebaskan pemanggil. Di C, perbedaan ini tidak terlihat dari tipe saja, sehingga nama fungsi, dokumentasi, dan pola pemakaian menjadi penting.
+Hal ini berkaitan dengan ownership. Dalam C, ownership berarti kejelasan tentang siapa yang bertanggung jawab membebaskan memori. Jika sebuah fungsi mengembalikan pointer hasil alokasi, dokumentasi fungsi harus menyatakan bahwa pemanggil wajib membebaskan hasil tersebut.
+
+Library C yang baik biasanya menyediakan kontrak yang jelas. Ada fungsi yang mengembalikan pointer yang tidak boleh dibebaskan oleh pemanggil, dan ada fungsi yang mengembalikan memori baru yang harus dibebaskan dengan `free` atau fungsi khusus seperti `xxx_free`.
 
 ---
 
-## 9.9 Membangun linked list sungguhan
+## 9.9 Linked List dengan Alokasi Heap
 
-Sekarang kita gabungkan struct (Bab 8), pointer (Bab 6), dan heap (bab ini) untuk membangun struktur data dinamis pertama kita: **singly linked list**. Ini melanjutkan ide dari Bab 8.6 tentang struct yang menunjuk struct sejenis.
+Heap memungkinkan struktur data yang jumlah elemennya dapat berubah saat program berjalan. Contoh dasar yang penting adalah singly linked list.
 
 ```c
 #include <stdio.h>
@@ -350,34 +397,39 @@ typedef struct Node {
     struct Node *next;
 } Node;
 
-// buat node baru di heap
 Node *buat_node(int data) {
     Node *n = malloc(sizeof(Node));
-    if (n == NULL) return NULL;
+    if (n == NULL) {
+        return NULL;
+    }
+
     n->data = data;
     n->next = NULL;
     return n;
 }
 
-// tambah node ke depan list (return head baru)
 Node *push_depan(Node *head, int data) {
     Node *n = buat_node(data);
-    if (n == NULL) return head;     // alokasi gagal: list tak berubah
-    n->next = head;                 // node baru menunjuk head lama
-    return n;                       // node baru jadi head
+    if (n == NULL) {
+        return head;
+    }
+
+    n->next = head;
+    return n;
 }
 
 void cetak(Node *head) {
-    for (Node *cur = head; cur != NULL; cur = cur->next)
+    for (Node *cur = head; cur != NULL; cur = cur->next) {
         printf("%d -> ", cur->data);
+    }
     printf("NULL\n");
 }
 
-// bebaskan semua node
 void hapus_semua(Node *head) {
     Node *cur = head;
+
     while (cur != NULL) {
-        Node *berikut = cur->next;  // simpan dulu, sebelum cur di-free
+        Node *berikut = cur->next;
         free(cur);
         cur = berikut;
     }
@@ -385,69 +437,66 @@ void hapus_semua(Node *head) {
 
 int main(void) {
     Node *head = NULL;
+
     head = push_depan(head, 30);
     head = push_depan(head, 20);
     head = push_depan(head, 10);
 
-    cetak(head);                    // 10 -> 20 -> 30 -> NULL
+    cetak(head);
 
-    hapus_semua(head);              // bebaskan semua; tanpa ini -> leak 3 node
+    hapus_semua(head);
     head = NULL;
     return 0;
 }
 ```
 
-Poin-poin penting dari contoh ini:
+Setiap node dialokasikan secara terpisah di heap. Node-node tersebut tidak harus berada bersebelahan di memori. Hubungan antar-node dibentuk melalui pointer `next`.
 
-- **Tiap node di-`malloc` terpisah.** List bisa tumbuh sesuai kebutuhan saat runtime, tidak seperti array statis. Node-node tersebar di heap dan disambung oleh pointer `next`.
-- **`cur = cur->next`** berarti berjalan menyusuri list dengan mengikuti pointer. Inilah esensi traversal struktur data berbasis pointer.
-- **`hapus_semua`** krusial: kita harus mem-`free` **setiap** node. Perhatikan kita menyimpan `cur->next` ke `berikut` *sebelum* `free(cur)`. Kalau `free(cur)` dilakukan lebih dulu, membaca `cur->next` menjadi dangling read.
-- Tanpa `hapus_semua`, ketiga node bocor. Coba jalankan dengan `valgrind` dengan dan tanpa `hapus_semua`; kamu akan melihat laporan leak-nya.
+Fungsi `hapus_semua` harus membebaskan setiap node. Nilai `cur->next` disimpan lebih dahulu sebelum `free(cur)` dipanggil, karena setelah `cur` dibebaskan, membaca `cur->next` tidak lagi valid.
 
-Linked list juga menunjukkan trade-off heap secara nyata. Menambah node di depan murah karena cukup mengalokasikan satu node dan mengubah satu pointer. Namun traversal tidak se-cache-friendly array, karena node bisa tersebar di heap. Pilihan struktur data selalu membawa konsekuensi memori dan performa.
-
-Ini fondasi banyak struktur data dinamis. Tree, hash table, dan graph memakai variasi dari ide yang sama: data ditempatkan di heap, lalu saling terhubung lewat pointer.
+Tanpa `hapus_semua`, seluruh node yang sudah dialokasikan akan menjadi leak. Gunakan Valgrind atau AddressSanitizer untuk memeriksa bahwa seluruh node sudah dibebaskan dengan benar.
 
 ---
 
-## 9.10 Rangkuman model mental
+## 9.10 Rangkuman Model Mental
 
-1. Memori program terbagi: **text** (kode + literal), **data/bss** (global/static), **heap** (dinamis, manual), **stack** (lokal, otomatis). Heap tumbuh ke atas, stack ke bawah.
-2. **Heap** dipakai saat ukuran baru diketahui runtime atau data harus hidup melampaui satu fungsi.
-3. **`malloc`** meminta memori dengan isi awal tidak terdefinisi, sedangkan **`free`** mengembalikannya. **Selalu cek `malloc` != NULL.** `calloc` menginisialisasi nol dan mengecek overflow; `realloc` mengubah ukuran dan bisa memindahkan alamat.
-4. **Allocator (libc) berjalan di user space.** Ia meminta area besar dari kernel (`brk`/`mmap`) sesekali, lalu membagi-baginya sendiri. Ia menyimpan **metadata** (ukuran/flag) tepat sebelum blokmu; itu sebabnya `free(p)` cukup tahu `p`.
-5. **Tiga bug besar:** memory leak (lupa free), dangling/use-after-free (pakai setelah free), double free. Pertahanan: satu malloc-satu free, `p = NULL` setelah free, jalankan Valgrind/ASan.
-6. **Ownership** = konvensi siapa yang harus memanggil `free`. Dokumentasikan dan patuhi; C tidak mengurusnya untukmu.
-7. **Heap memungkinkan struktur data dinamis** (linked list, tree, dll): struct ber-pointer yang tiap node-nya di-`malloc`.
-
----
-
-## 9.11 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Alokasikan satu `int` dengan `malloc`, isi, cetak, lalu `free`. Tambahkan pengecekan `NULL`. Jalankan dengan `valgrind ./program` — pastikan "no leaks".
-2. Minta `n` dari user, alokasikan array `int` sebesar `n`, isi dengan kuadrat, cetak, `free`. Apa yang terjadi kalau kamu **lupa** `free`? Konfirmasi dengan valgrind.
-3. Bandingkan `malloc(10*sizeof(int))` lalu baca isinya sebelum ditulis, vs `calloc(10, sizeof(int))`. Apa beda isinya? Kenapa?
-4. Implementasikan dynamic array yang tumbuh dengan `realloc` (pola "double capacity", Bagian 9.5). Baca angka dari user sampai dia masukkan 0, simpan semua, lalu cetak.
-5. Sengaja buat use-after-free: `free(p)` lalu `*p = 5`. Jalankan biasa (mungkin "kelihatan jalan"?), lalu compile `-fsanitize=address` — apa kata ASan?
-6. Sengaja buat double free. Jalankan. Apa pesan errornya? Lalu tambahkan `p = NULL;` setelah free pertama — kenapa double free jadi tak terjadi?
-7. Implementasikan linked list lengkap (Bagian 9.9), tambahkan fungsi `push_belakang`, `hapus_nilai(head, x)`, dan `panjang(head)`. Jalankan dengan valgrind untuk memastikan tak ada leak.
-8. Tulis fungsi `char *gabung(const char *a, const char *b)` yang mengalokasikan string baru hasil penggabungan `a` dan `b` di heap, dan kembalikan. Dokumentasikan ownership-nya. (Petunjuk: hitung panjang total + 1 untuk `'\0'`.)
-
-**Pertanyaan refleksi:**
-
-1. Sebutkan empat area memori program dan apa isi masing-masing. Di mana string literal tinggal?
-2. Kenapa kita butuh heap, padahal sudah ada stack? Dua keterbatasan stack apa yang dipecahkan heap?
-3. Kenapa `malloc` bisa mengembalikan `NULL`, dan apa akibatnya kalau kamu tak mengeceknya?
-4. Dengan kata-katamu sendiri, bagaimana `free(p)` tahu harus membebaskan berapa byte, padahal cuma diberi `p`?
-5. Apakah `malloc` itu syscall? Jelaskan hubungan antara allocator (libc) dan kernel.
-6. Jelaskan tiga bug besar memori. Kenapa `p = NULL` setelah `free` membantu mencegah dua di antaranya?
-7. Apa itu "ownership" memori, dan kenapa ia jadi konvensi penting dalam desain fungsi yang mengembalikan pointer?
-8. Kenapa di `hapus_semua` kita harus menyimpan `cur->next` sebelum `free(cur)`?
+1. Memori program umumnya terdiri dari text, data, BSS, heap, dan stack.
+2. Stack digunakan untuk data lokal yang umurnya mengikuti pemanggilan fungsi.
+3. Heap digunakan ketika ukuran data baru diketahui saat runtime atau ketika data harus hidup melampaui satu fungsi.
+4. `malloc` mengalokasikan byte tanpa inisialisasi, sedangkan `calloc` mengalokasikan dan mengisi byte dengan nol.
+5. `realloc` mengubah ukuran blok dan dapat memindahkan blok ke alamat baru.
+6. Setiap alokasi yang berhasil harus dibebaskan dengan tepat satu `free`.
+7. Kesalahan umum dalam manajemen memori meliputi memory leak, use-after-free, dan double free.
+8. Ownership harus jelas ketika pointer hasil alokasi berpindah dari satu fungsi ke fungsi lain.
+9. Struktur data dinamis seperti linked list dibangun dengan node yang dialokasikan di heap dan dihubungkan melalui pointer.
 
 ---
 
-Kita sekarang sudah melihat inti manajemen memori manual di C: meminta memori, memakai pointer ke blok tersebut, menentukan ownership, lalu membebaskannya pada waktu yang tepat.
+## 9.11 Latihan dan Pertanyaan Refleksi
 
-Di Bab 10, kita mulai masuk ke cara program C nyata dibangun: **preprocessor & build system**. Kita akan membahas apa yang dilakukan `#define` dan macro, conditional compilation, header guard, serta otomatisasi build dengan `Makefile`.
+### Latihan Praktik
+
+1. Alokasikan satu `int` dengan `malloc`, isi nilainya, cetak, lalu bebaskan dengan `free`. Tambahkan pengecekan `NULL`.
+2. Minta nilai `n` dari pengguna, alokasikan array `int` sebesar `n`, isi dengan kuadrat indeks, cetak, lalu bebaskan.
+3. Bandingkan hasil penggunaan `malloc(10 * sizeof(int))` dan `calloc(10, sizeof(int))`. Perhatikan perbedaan nilai awalnya.
+4. Buat dynamic array yang tumbuh menggunakan `realloc`. Gunakan strategi kapasitas yang digandakan ketika array penuh.
+5. Buat contoh use-after-free secara sengaja, lalu jalankan dengan AddressSanitizer untuk melihat laporan kesalahannya.
+6. Buat contoh double free, lalu ubah kode dengan menambahkan `p = NULL` setelah `free` pertama.
+7. Lengkapi linked list dengan fungsi `push_belakang`, `hapus_nilai`, dan `panjang`.
+8. Tulis fungsi `char *gabung(const char *a, const char *b)` yang mengalokasikan string baru berisi gabungan dua string. Pastikan dokumentasi fungsi menjelaskan bahwa pemanggil wajib membebaskan hasilnya.
+
+### Pertanyaan Refleksi
+
+1. Apa saja wilayah utama memori program dan apa isi masing-masing wilayah.
+2. Mengapa heap tetap diperlukan meskipun stack sudah tersedia.
+3. Apa yang harus dilakukan setelah `malloc` mengembalikan `NULL`.
+4. Mengapa `free(p)` dapat membebaskan blok tanpa menerima ukuran blok sebagai argumen.
+5. Apa peran allocator dalam hubungan antara program dan kernel.
+6. Apa perbedaan memory leak, use-after-free, dan double free.
+7. Mengapa ownership penting dalam fungsi yang mengembalikan pointer.
+8. Mengapa `hapus_semua` harus menyimpan `cur->next` sebelum memanggil `free(cur)`.
+
+---
+
+Setelah memahami stack, heap, dan pengelolaan memori manual, Anda sudah memiliki dasar penting untuk menulis program C yang lebih realistis. Bab berikutnya membahas preprocessor dan build system, termasuk `#define`, macro, conditional compilation, header guard, dan penggunaan `Makefile`.
+

@@ -1,242 +1,294 @@
 ---
-title: "Bab 21 — Undefined Behavior & Keamanan"
-description: "Sepanjang buku ini kita beberapa kali menyebut undefined behavior (UB). Kita melihatnya di Bab 2 (signed overflow), Bab 5 (out-of-bounds), Bab 6 (dereference..."
-tags: [c, system-programming]
+title: "Bab 21 - Undefined Behavior dan Keamanan"
+description: "Dalam C, kesalahan program tidak selalu menghasilkan pesan error yang jelas. Kesalahan tertentu dapat membuat program tetap berjalan, menghasilkan nilai yang salah,..."
+tags: [c, systems-programming]
 order: 21
-updated: 2026-06-20
+updated: 2026-07-02
 ---
+Dalam C, kesalahan program tidak selalu menghasilkan pesan error yang jelas. Kesalahan tertentu dapat membuat program tetap berjalan, menghasilkan nilai yang salah, berhenti tiba-tiba, atau membuka celah keamanan. Salah satu sumber utama perilaku seperti ini adalah **undefined behavior**.
 
-> "Di banyak bahasa, kesalahan tertentu menghasilkan error yang jelas. Di C, sebagian kesalahan masuk ke wilayah undefined behavior: standar tidak lagi memberi jaminan tentang apa yang terjadi. Program bisa tampak berjalan, crash, menghasilkan data salah, atau membuka celah keamanan."
+Sepanjang buku ini, undefined behavior sudah beberapa kali muncul. Bab 2 membahas overflow pada signed integer. Bab 5 membahas akses array di luar batas. Bab 6 dan Bab 9 membahas pointer `NULL`, dangling pointer, dan use-after-free. Bab ini menyatukan semuanya dalam konteks keamanan program.
 
-Sepanjang buku ini kita beberapa kali menyebut **undefined behavior (UB)**. Kita melihatnya di Bab 2 (signed overflow), Bab 5 (out-of-bounds), Bab 6 (dereference NULL/dangling pointer), dan Bab 9 (use-after-free). Sekarang kita bahas langsung: apa sebenarnya UB, kenapa ia berbahaya, dan bagaimana bug C bisa berubah menjadi celah keamanan. Bab ini juga menghubungkan kembali pembahasan Bab 4 dan Bab 5 tentang buffer overflow.
+Bab ini juga menjelaskan hubungan antara buffer overflow, layout stack, return address, dan mitigasi modern. Fokusnya adalah pemahaman defensif agar kamu dapat menulis kode C yang lebih aman dan memahami alasan di balik berbagai aturan keamanan.
 
-> **Catatan etika & tujuan:** bab ini menjelaskan *bagaimana* kelas serangan tertentu bekerja agar kamu bisa menulis kode yang lebih aman dan memahami kenapa mitigasi ada. Pembahasannya bersifat defensif dan edukatif, bukan resep eksploitasi praktis.
-
----
-
-## 21.1 Apa itu undefined behavior?
-
-> **Undefined behavior adalah situasi di mana standar bahasa C secara sengaja tidak mendefinisikan apa yang harus terjadi. Compiler bebas membuat asumsi berdasarkan fakta bahwa UB tidak boleh terjadi di program yang valid.**
-
-Ini berbeda dari "error" biasa. Kalau UB terjadi, tidak ada jaminan apa pun: program bisa crash, menghasilkan nilai ngawur, tampak benar, atau berperilaku berbeda pada compiler, level optimasi, atau platform yang berbeda. Standar C tidak menentukan hasilnya.
-
-Kenapa C punya UB sama sekali? Salah satu alasannya adalah performa dan kesederhanaan implementasi. Dengan tidak mewajibkan compiler mengecek atau menangani kasus seperti overflow dan akses ilegal, C bisa menghasilkan kode yang sangat efisien dan dekat dengan hardware. Harganya adalah tanggung jawab besar di sisi programmer. Ini trade-off inti C yang sudah kita tekankan sejak Bab 1.
-
-Contoh UB yang sudah kita temui:
-- **Signed integer overflow** (Bab 2) — `INT_MAX + 1`.
-- **Out-of-bounds array access** (Bab 5) — `arr[100]` pada array 5 elemen.
-- **Dereference NULL/dangling/wild pointer** (Bab 6, 9).
-- **Use-after-free & double-free** (Bab 9).
-- **Membaca variabel tak-terinisialisasi**.
-- **Data race** (Bab 17).
+> **Catatan etika dan tujuan**
+>
+> Materi ini ditujukan untuk memahami cara kerja kerentanan agar kamu mampu mencegahnya. Pembahasan berhenti pada level konsep, analisis, dan praktik pengamanan. Bab ini bukan panduan eksploitasi praktis.
 
 ---
 
-## 21.2 Kenapa UB lebih berbahaya dari yang kamu kira
+## 21.1 Apa Itu Undefined Behavior
 
-Sering kali UB dibayangkan hanya sebagai "mungkin crash". Masalahnya lebih luas dari itu, karena **compiler boleh berasumsi UB tidak terjadi dan mengoptimasi berdasarkan asumsi tersebut.**
+**Undefined behavior** adalah kondisi ketika standar bahasa C tidak mendefinisikan apa yang harus terjadi. Jika program memicu undefined behavior, compiler dan runtime tidak wajib memberikan hasil tertentu.
 
-Contoh klasiknya:
+Undefined behavior berbeda dari error biasa. Program yang mengalami undefined behavior dapat berhenti, menghasilkan nilai yang salah, tampak berjalan normal, atau berubah perilakunya ketika compiler, opsi optimasi, platform, atau versi library berubah.
+
+C memiliki undefined behavior karena bahasa ini dirancang untuk efisiensi dan kedekatan dengan mesin. Standar C tidak memaksa compiler untuk menangani semua kondisi yang tidak valid, seperti akses memori ilegal atau overflow tertentu. Dengan begitu, compiler dapat menghasilkan kode yang cepat. Konsekuensinya, tanggung jawab untuk menjaga validitas program berada pada programmer.
+
+Contoh undefined behavior yang sudah dibahas sebelumnya antara lain sebagai berikut.
+
+- **Signed integer overflow** seperti `INT_MAX + 1`.
+- **Akses array di luar batas** seperti `arr[100]` pada array berisi 5 elemen.
+- **Dereference pointer `NULL`, dangling pointer, atau wild pointer**.
+- **Use-after-free dan double-free**.
+- **Membaca variabel yang belum diinisialisasi**.
+- **Data race** pada program multithread.
+
+---
+
+## 21.2 Mengapa Undefined Behavior Sangat Berbahaya
+
+Undefined behavior sering disalahpahami sebagai kondisi yang hanya mungkin menyebabkan crash. Masalahnya lebih serius karena compiler boleh mengasumsikan bahwa undefined behavior tidak pernah terjadi.
+
+Perhatikan contoh berikut.
 
 ```c
 int cek(int *p) {
-    int x = *p;            // dereference p
-    if (p == NULL)         // cek NULL... SETELAH dereference
+    int x = *p;
+    if (p == NULL)
         return -1;
     return x;
 }
 ```
 
-Compiler dapat bernalar seperti ini: baris `*p` men-dereference `p`. Kalau `p` adalah NULL, itu UB. Karena compiler boleh berasumsi UB tidak terjadi, maka setelah dereference tersebut `p` dianggap pasti bukan NULL. Akibatnya, `if (p == NULL)` bisa dianggap selalu false dan pengecekan itu dapat dihapus. Program lalu crash pada kasus yang justru ingin kamu lindungi. Ini bukan bug compiler; ini konsekuensi dari aturan UB.
+Kode tersebut melakukan dereference terhadap `p` sebelum memeriksa apakah `p == NULL`. Jika `p` bernilai `NULL`, ekspresi `*p` sudah memicu undefined behavior. Karena standar C memperbolehkan compiler mengasumsikan undefined behavior tidak terjadi, compiler dapat menyimpulkan bahwa `p` pasti bukan `NULL` setelah baris `int x = *p;`.
 
-> **Pelajaran:** UB bukan hanya "perilaku saat itu salah". Efeknya bisa merembet ke optimasi compiler: kode dapat dihapus, alur dapat berubah, dan hasilnya bisa tampak tidak masuk akal tetapi tetap sah menurut standar. Karena itu, efek UB bisa muncul jauh dari titik kesalahan dan berubah antar versi compiler. Program yang "kelihatan jalan" hari ini belum tentu benar.
+Akibatnya, pemeriksaan `if (p == NULL)` dapat dianggap tidak perlu dan dihapus oleh optimasi. Hasil seperti ini bukan bug compiler. Ini adalah konsekuensi dari kontrak bahasa C yang menyatakan bahwa program valid tidak boleh memicu undefined behavior.
 
-Cara membayangkannya: kode C yang valid adalah kontrak antara programmer dan compiler. Jika program melanggar kontrak lewat UB, compiler tetap boleh memakai asumsi bahwa kontrak itu tidak dilanggar. Optimasi yang dihasilkan bisa mengejutkan, tetapi berasal dari premis yang menurut standar dianggap sah.
+Pelajaran pentingnya adalah undefined behavior tidak hanya merusak satu baris kode. Efeknya dapat memengaruhi optimasi, mengubah alur program, menghapus pemeriksaan keamanan, dan menghasilkan perilaku yang berbeda pada konfigurasi build yang berbeda.
 
 ---
 
-## 21.3 Buffer overflow: membayar janji Bab 4 & 5
+## 21.3 Buffer Overflow
 
-Bagian ini menggabungkan beberapa konsep penting. Di Bab 5 kita membahas bahwa out-of-bounds bisa menimpa data lain. Di Bab 4 kita membahas bahwa stack frame menyimpan return address. Buffer overflow di stack menghubungkan keduanya.
+Buffer overflow adalah salah satu konsekuensi paling penting dari akses memori di luar batas. Di Bab 5, kita membahas bahwa C tidak memeriksa batas array secara otomatis. Di Bab 4, kita melihat bahwa stack frame menyimpan variabel lokal dan return address. Dua konsep ini bertemu pada stack buffer overflow.
 
-### Set-up: array di stack & return address
+### Array di Stack dan Return Address
 
-Ingat Bab 4: saat fungsi dipanggil, stack frame-nya berisi variabel lokal **dan** return address (alamat untuk kembali ke pemanggil). Stack tumbuh ke bawah, dan variabel lokal serta return address berada dalam area stack frame yang berdekatan.
+Saat sebuah fungsi dipanggil, stack frame berisi data yang dibutuhkan fungsi tersebut, termasuk variabel lokal dan informasi untuk kembali ke pemanggil. Salah satu informasi penting itu adalah return address, yaitu alamat instruksi yang akan dieksekusi setelah fungsi selesai.
 
-Sekarang lihat kode rentan (pola yang dulu sangat umum):
+Perhatikan kode berikut.
 
 ```c
 #include <stdio.h>
 #include <string.h>
 
 void rentan(const char *input) {
-    char buf[8];               // buffer 8 byte di STACK
-    strcpy(buf, input);        // BAHAYA: strcpy tak cek ukuran (Bab 5!)
+    char buf[8];
+    strcpy(buf, input);
     printf("%s\n", buf);
 }
 
 int main(int argc, char **argv) {
-    rentan(argv[1]);           // input dari user/penyerang
+    rentan(argv[1]);
     return 0;
 }
 ```
 
-`strcpy` (Bab 5: tidak mengecek ukuran destination) menyalin `input` ke `buf` tanpa peduli `buf` hanya muat 8 byte. Kalau `input` lebih panjang dari 8 byte, `strcpy` terus menulis **melewati** `buf`, menimpa apa pun yang ada setelahnya di stack, termasuk return address.
+Fungsi `strcpy` menyalin string dari `input` ke `buf` tanpa mengetahui ukuran `buf`. Jika `input` lebih panjang dari kapasitas `buf`, penulisan akan melewati batas array. Data setelah `buf` di stack dapat ikut tertimpa.
 
-```
-Stack frame 'rentan' (skema, ingat Bab 4):
+Skema stack frame dapat digambarkan seperti ini.
 
+```text
 alamat rendah
    +------------------+
-   |  buf[0..7]       |  <- 8 byte buffer
+   |  buf[0..7]       |
    +------------------+
-   |  (saved rbp)     |
+   |  saved rbp       |
    +------------------+
-   |  RETURN ADDRESS  |  <- alamat kembali ke main!
+   |  return address  |
    +------------------+
 alamat tinggi
-
-strcpy menulis dari buf ke ATAS (alamat naik). Input > 8 byte:
-buf terisi, lalu LUBER ke saved rbp, lalu ke RETURN ADDRESS.
 ```
 
-### Apa yang terjadi: membajak alur
+Pada arsitektur dan ABI tertentu, penulisan yang melewati `buf` dapat mencapai saved frame pointer dan return address. Detail layout stack bergantung pada compiler, platform, opsi optimasi, dan mitigasi yang aktif, tetapi prinsip utamanya tetap sama. Menulis di luar batas array berarti menulis ke memori yang bukan milik array tersebut.
 
-Kalau input dibuat cukup panjang untuk **menimpa return address** dengan alamat tertentu, maka saat `rentan` selesai dan menjalankan `ret` (ingat Bab 4: `ret` = pop return address lalu lompat ke sana), CPU akan melompat ke alamat tersebut, bukan kembali ke `main`. Pada level konsep, inilah cara alur eksekusi program bisa dibajak.
+### Dampak terhadap Alur Eksekusi
 
-Inilah **stack buffer overflow**, salah satu kelas kerentanan penting dalam sejarah keamanan komputer. Dengan teknik lanjutan, bug seperti ini dapat dipakai untuk mengarahkan eksekusi ke alur yang tidak dimaksudkan, mengambil alih proses, dan dalam kondisi tertentu berpengaruh ke sistem sesuai hak akses proses tersebut.
+Jika return address tertimpa, fungsi dapat kembali ke alamat yang salah. Dalam skenario eksploitasi, penyerang berusaha mengendalikan nilai tersebut agar eksekusi program berpindah ke lokasi yang mereka pilih.
 
-Sekarang alasan peringatan Bab 5 lebih jelas: "C tidak cek batas array", "`strcpy`/`strcat` berbahaya", dan "pakai `snprintf` atau fungsi berbatas ukuran" bukan sekadar soal crash. Ini soal menjaga agar data dari luar tidak bisa merusak state program dan mengubah alur eksekusinya.
+Inilah inti dari stack buffer overflow. Bug yang awalnya tampak seperti kesalahan penyalinan string dapat berubah menjadi pengambilalihan alur eksekusi. Karena proses berjalan dengan hak akses tertentu, pengambilalihan proses dapat berdampak serius pada keamanan sistem.
 
-Analogi singkatnya: `buf` seperti kotak surat berukuran tetap, dan di dekatnya ada instruksi "setelah selesai, kembali ke alamat X" (return address). Penyalinan tanpa batas seperti `strcpy` memaksa data sepanjang apa pun masuk ke kotak itu. Jika data terlalu panjang, ia meluber dan bisa menimpa instruksi kembali tersebut. CPU kemudian mengikuti alamat yang sudah rusak itu.
+Hal ini menjelaskan mengapa fungsi seperti `strcpy`, `strcat`, dan `sprintf` harus dihindari pada input yang tidak sepenuhnya terkendali. Masalahnya bukan hanya kemungkinan crash, tetapi juga kemungkinan rusaknya struktur memori yang menentukan alur program.
 
 ---
 
-## 21.4 Pertahanan terhadap buffer overflow
+## 21.4 Pertahanan terhadap Buffer Overflow
 
-Ada beberapa lapisan pertahanan, mulai dari kode, compiler, OS, sampai hardware.
+Pertahanan terhadap buffer overflow harus dilakukan berlapis. Lapisan paling penting tetap berada pada kode sumber. Mitigasi compiler, sistem operasi, dan hardware membantu mengurangi risiko eksploitasi, tetapi tidak menggantikan kewajiban menulis kode yang benar.
 
-### Lapis 1: tulis kode yang benar (paling penting)
+### Lapis 1 - Menulis Kode yang Benar
 
-- **Selalu batasi ukuran.** Pakai `snprintf` bukan `sprintf`, `strncpy`/`strlcpy` bukan `strcpy`, `fgets(buf, sizeof(buf), ...)` bukan `gets` (Bab 5 dan 12). Selalu sertakan ukuran buffer.
-- **Validasi semua input** dari luar (panjang, rentang, format). Jangan pernah percaya input.
-- **Pikirkan ukuran buffer** di setiap penyalinan. Ini disiplin harian C.
+Gunakan fungsi yang menerima batas ukuran buffer. Hindari penyalinan tanpa batas.
 
 ```c
-// RENTAN:                    // AMAN:
-char buf[8];                  char buf[8];
-strcpy(buf, input);           snprintf(buf, sizeof(buf), "%s", input);
+char buf[8];
+snprintf(buf, sizeof(buf), "%s", input);
 ```
 
-### Lapis 2: mitigasi compiler & OS (otomatis, tapi bukan jaminan)
+Praktik yang perlu dibiasakan adalah sebagai berikut.
 
-Sistem modern menambahkan lapisan pertahanan **otomatis**. Memahaminya membantu melihat bagaimana compiler, OS, dan hardware bekerja sama.
+- Gunakan `snprintf` daripada `sprintf`.
+- Gunakan `fgets(buf, sizeof(buf), stdin)` daripada `gets`.
+- Pastikan setiap operasi penyalinan mengetahui ukuran tujuan.
+- Validasi input dari luar, termasuk panjang, rentang nilai, dan format.
+- Anggap semua input eksternal sebagai data yang tidak terpercaya.
 
-- **Stack canary** (`-fstack-protector`, default di banyak distro) — compiler menyisipkan nilai "penjaga" (canary) tepat sebelum return address. Sebelum `ret`, ia mengecek apakah canary masih utuh; kalau tertimpa oleh overflow, program dihentikan. Namanya berasal dari analogi "kenari di tambang batu bara": perubahan pada canary menjadi tanda bahaya.
-- **ASLR (Address Space Layout Randomization)** — ingat Bab 2, kenapa alamat variabel berubah tiap run? Inilah alasannya: OS mengacak alamat stack/heap/library tiap eksekusi, sehingga penyerang sulit menebak alamat target. Janji Bab 2 dibayar di sini.
-- **NX bit / DEP (W^X)** — menandai region memori sebagai "writable XOR executable": stack/heap bisa ditulis tetapi **tidak bisa dieksekusi**. Jadi penyerang tidak bisa sekadar menulis kode ke stack lalu menjalankannya. Teknik serangan dan pertahanan terus berkembang, tetapi prinsip mitigasi ini tetap penting.
+Contoh perbandingan sederhana.
 
-> Mitigasi ini sangat membantu, tetapi **bukan pengganti kode yang benar**. Mereka mempersulit eksploitasi, bukan membuat bug menjadi aman. Pertahanan terbaik tetap menghindari bug sejak awal.
+```c
+char buf[8];
 
-### Lapis 3: tools (Bab 20)
+strcpy(buf, input);
+snprintf(buf, sizeof(buf), "%s", input);
+```
 
-AddressSanitizer (`-fsanitize=address`) menangkap overflow saat development — sebelum kode sampai ke produksi. Inilah kenapa Bab 20 menekankan sanitizer.
+Baris pertama rentan karena tidak membatasi ukuran penyalinan. Baris kedua lebih aman karena ukuran `buf` diberikan secara eksplisit.
+
+### Lapis 2 - Mitigasi Compiler dan Sistem Operasi
+
+Sistem modern menyediakan beberapa mitigasi untuk mengurangi peluang eksploitasi.
+
+- **Stack canary** menambahkan nilai penjaga di stack sebelum return address. Jika overflow menimpa nilai tersebut, program dapat dihentikan sebelum `ret` dijalankan.
+- **ASLR** atau Address Space Layout Randomization mengacak alamat stack, heap, dan library setiap kali program berjalan. Ini membuat alamat target lebih sulit ditebak.
+- **NX bit, DEP, dan W^X** mencegah area memori tertentu dieksekusi sebagai kode. Stack dan heap dapat ditulis, tetapi tidak dapat langsung dijalankan sebagai instruksi.
+
+Mitigasi tersebut penting, tetapi tidak menjadikan bug aman. Mitigasi bertugas mengurangi peluang eksploitasi. Kode yang benar tetap menjadi pertahanan utama.
+
+### Lapis 3 - Tooling saat Development
+
+Tool seperti AddressSanitizer membantu menemukan overflow selama development.
+
+```sh
+cc -Wall -Wextra -fsanitize=address -g program.c -o program
+```
+
+Dengan sanitizer, banyak bug memori dapat terdeteksi lebih awal sebelum kode masuk ke lingkungan produksi.
 
 ---
 
-## 21.5 Integer overflow & masalahnya (Bab 2 menagih lagi)
+## 21.5 Integer Overflow dan Keamanan Memori
 
-Ingat signed overflow = UB (Bab 2)? Selain UB itu sendiri, integer overflow sering menjadi **akar** kerentanan memori. Pola klasiknya seperti ini:
+Overflow integer sering menjadi akar dari kerentanan memori. Signed integer overflow adalah undefined behavior, sedangkan overflow pada unsigned integer menggunakan wrap around yang terdefinisi oleh standar. Keduanya tetap dapat berbahaya jika digunakan dalam perhitungan ukuran buffer atau alokasi.
+
+Perhatikan contoh berikut.
 
 ```c
 void salin(char *src, size_t n) {
-    char *buf = malloc(n + 1);     // alokasi n+1 byte
+    char *buf = malloc(n + 1);
     memcpy(buf, src, n);
     buf[n] = '\0';
 }
 ```
 
-Kalau `n` adalah `SIZE_MAX` (nilai unsigned terbesar), maka `n + 1` **overflow ke 0** (wrap around, Bab 2). `malloc(0)` mengembalikan buffer sangat kecil (atau NULL), lalu `memcpy(buf, src, n)` menyalin jumlah byte yang sangat besar ke buffer kecil -> **heap buffer overflow**. Bug integer dapat berubah menjadi bug memori, lalu menjadi celah keamanan.
+Jika `n` bernilai `SIZE_MAX`, ekspresi `n + 1` pada tipe `size_t` akan menjadi 0 karena wrap around. Pemanggilan `malloc(0)` tidak mengalokasikan buffer sebesar `n + 1`. Setelah itu, `memcpy(buf, src, n)` tetap mencoba menyalin `n` byte. Hasilnya adalah penulisan jauh di luar kapasitas buffer.
 
-Pelajaran: **periksa overflow sebelum aritmetika ukuran**, terutama untuk perhitungan ukuran alokasi (ingat juga peringatan `n * sizeof(int)` di Bab 9). Gunakan `calloc` (yang mengecek overflow perkalian) atau periksa manual. UBSan (Bab 20) menangkap signed overflow saat runtime.
+Bug ini menunjukkan rantai masalah yang umum terjadi. Perhitungan ukuran yang salah dapat menghasilkan alokasi yang terlalu kecil, lalu operasi memori berikutnya memicu overflow.
 
----
+Untuk mencegahnya, periksa overflow sebelum melakukan aritmetika ukuran.
 
-## 21.6 Daftar kerentanan memori klasik di C
+```c
+if (n == SIZE_MAX) {
+    return;
+}
 
-Untuk melengkapi peta mental, berikut kelas-kelas bug C yang sering menjadi celah keamanan. Sebagian besar sudah kita sentuh di bab-bab sebelumnya.
+char *buf = malloc(n + 1);
+```
 
-| Kerentanan | Akar (bab) | Akibat |
-|------------|-----------|--------|
-| **Stack buffer overflow** | out-of-bounds tulis (Bab 5) | bajak return address |
-| **Heap buffer overflow** | out-of-bounds di heap (Bab 9) | rusak metadata allocator → bajak |
-| **Use-after-free** | dangling pointer (Bab 9) | akses memori yang sudah dipakai ulang |
-| **Double free** | (Bab 9) | rusak struktur allocator |
-| **Integer overflow** | (Bab 2) | sering jadi akar overflow memori |
-| **Format string** | `printf(input)` user | baca/tulis memori sembarang |
-| **Uninitialized read** | (Bab 9) | bocor data lama / perilaku tak tentu |
-
-> **Format string bug** (yang belum kita bahas): jangan pernah menulis `printf(input_user)`. Selalu gunakan `printf("%s", input_user)`. Kalau input berisi `%x`/`%n`, `printf` akan menafsirkannya sebagai format specifier dan dapat membaca/menulis memori. Aturannya: string format harus selalu literal yang kamu kendalikan, bukan data dari luar.
-
-Mayoritas kelas ini adalah konsekuensi langsung dari model C: bahasa memberi kontrol besar kepada programmer dan melakukan sedikit pengecekan otomatis. Bahasa modern seperti Rust lahir sebagian untuk menutup celah-celah ini dengan jaminan di compile-time. Namun memahami C tetap penting untuk mengerti kenapa celah itu ada.
+Untuk alokasi array, gunakan pemeriksaan yang sesuai sebelum menghitung `count * sizeof(T)`. Fungsi seperti `calloc` pada banyak implementasi melakukan pemeriksaan overflow untuk perkalian ukuran, tetapi programmer tetap harus memahami batas dan kontrak fungsi yang digunakan.
 
 ---
 
-## 21.7 Prinsip menulis C yang aman
+## 21.6 Kerentanan Memori Klasik di C
 
-Rangkuman praktik defensif (menyatukan disiplin sepanjang buku):
+Berikut adalah beberapa kelas kerentanan yang sering muncul pada program C.
 
-1. **Jangan picu UB.** Kenali daftarnya (Section 21.1). Saat ragu, periksa standar atau gunakan tools. UB yang "kelihatan jalan" bukan berarti benar.
-2. **Selalu batasi ukuran buffer.** `snprintf`, `fgets`, fungsi ber-`n`. Tak ada penyalinan tanpa batas.
-3. **Validasi input.** Panjang, rentang, format. Input eksternal tidak boleh dipercaya begitu saja.
-4. **Periksa overflow ukuran** sebelum alokasi/aritmetika size.
-5. **Kelola memori dengan disiplin** (Bab 9): satu malloc-satu free, `p=NULL` setelah free, cek NULL.
-6. **String format selalu literal.** Jangan `printf(input)`.
-7. **Pakai tools** (Bab 20): `-Wall -Wextra -fsanitize=address,undefined` saat development; valgrind.
-8. **Aktifkan mitigasi** (stack canary, ASLR, NX — biasanya default; jangan matikan tanpa alasan).
+| Kerentanan | Akar Masalah | Dampak Umum |
+|------------|--------------|-------------|
+| **Stack buffer overflow** | Penulisan di luar batas array stack | Kerusakan stack dan potensi pengambilalihan alur eksekusi |
+| **Heap buffer overflow** | Penulisan di luar batas alokasi heap | Kerusakan data heap dan metadata allocator |
+| **Use-after-free** | Pointer masih digunakan setelah `free` | Akses ke memori yang sudah dapat dipakai ulang |
+| **Double free** | Memori yang sama dibebaskan lebih dari sekali | Kerusakan struktur allocator |
+| **Integer overflow** | Perhitungan ukuran melewati batas tipe | Alokasi terlalu kecil atau logika validasi salah |
+| **Format string bug** | Data eksternal digunakan sebagai format `printf` | Pembacaan atau penulisan memori yang tidak semestinya |
+| **Uninitialized read** | Membaca nilai yang belum diinisialisasi | Kebocoran data lama atau perilaku tidak terdefinisi |
 
-Prinsip payungnya: **C memberi kebebasan dan tanggung jawab besar. Keamanan bukan fitur yang otomatis menyala; ia hasil dari disiplin di setiap baris.**
+Format string bug perlu mendapat perhatian khusus. Jangan menulis kode seperti ini.
 
----
+```c
+printf(input_user);
+```
 
-## 21.8 Rangkuman model mental
+Gunakan string format literal yang kamu kendalikan.
 
-1. **Undefined behavior** = standar C sengaja tidak mendefinisikan hasilnya; compiler boleh **berasumsi UB tidak terjadi** dan mengoptimasi berdasarkan asumsi itu, misalnya menghapus cek NULL. Efeknya bisa muncul jauh dari titik UB dan berubah antar compiler. Ada demi performa; harganya tanggung jawab programmer.
-2. **Buffer overflow** (menghubungkan Bab 4 dan 5): menulis melewati buffer di stack bisa menimpa **return address** (Bab 4). Saat `ret`, CPU dapat lompat ke alamat yang sudah rusak atau dikendalikan input. Akar masalahnya: C tidak cek batas dan fungsi seperti `strcpy` tidak membatasi ukuran.
-3. **Pertahanan berlapis:** kode benar (batasi ukuran, validasi input; paling penting) -> mitigasi otomatis (stack canary, **ASLR** dari Bab 2, NX bit) -> tools (ASan).
-4. **Integer overflow** (Bab 2) sering jadi akar overflow memori (mis. `malloc(n+1)` yang wrap ke 0). Periksa overflow sebelum aritmetika ukuran.
-5. Kelas kerentanan klasik: stack/heap overflow, use-after-free, double-free, integer overflow, **format string** (jangan `printf(input)`), uninitialized read. Semuanya terkait dengan minimnya pengecekan otomatis di C.
-6. **Keamanan = disiplin di tiap baris**, bukan fitur otomatis. Mitigasi mempersulit eksploitasi, tetapi tidak menggantikan kode yang benar.
+```c
+printf("%s", input_user);
+```
 
----
+Jika input berisi `%x`, `%s`, atau `%n`, `printf(input_user)` akan menafsirkannya sebagai format specifier. Ini dapat menyebabkan pembacaan memori, crash, atau pada kondisi tertentu penulisan memori.
 
-## 21.9 Latihan & Pertanyaan Refleksi
-
-> Lakukan semua eksperimen ini **hanya pada programmu sendiri, di mesinmu sendiri**, untuk belajar. Konteksnya edukatif dan defensif.
-
-**Latihan praktik:**
-
-1. Demonstrasikan UB "kelihatan jalan tapi tak menjamin": tulis program dengan signed overflow (`INT_MAX + 1`). Compile `-O0` lalu `-O2`, bandingkan hasil. Lalu jalankan dengan `-fsanitize=undefined` — apa yang UBSan laporkan?
-2. Demonstrasikan compiler menghapus cek karena UB: tulis fungsi `cek` dari Section 21.2. Compile dengan `-O2 -Wall`. Periksa apakah cek NULL "hilang" (lihat assembly dengan `objdump -d` atau amati perilakunya).
-3. Reproduksi buffer overflow yang aman untuk diamati: `char buf[8]; strcpy(buf, argv[1]);`. Jalankan dengan argumen pendek (OK) lalu sangat panjang. Apa yang terjadi? Lalu compile dengan `-fsanitize=address` dan jalankan lagi — apa kata ASan? (Lihat ia menunjuk overflow tepat.)
-4. Perbaiki program di atas dengan `snprintf(buf, sizeof(buf), "%s", argv[1])`. Jalankan dengan input panjang — apakah sekarang aman? Apa yang terjadi pada input (terpotong)?
-5. Demonstrasikan ASLR: cetak `&` sebuah variabel lokal, jalankan beberapa kali. Apakah alamat berubah? (Bab 2!) Lalu matikan ASLR sementara (`setarch -R ./program`) — apakah jadi konsisten?
-6. Demonstrasikan integer overflow → masalah ukuran: hitung `n + 1` di mana `n = SIZE_MAX`. Cetak hasilnya. Kenapa `malloc(n+1)` jadi berbahaya?
-7. Demonstrasikan format string: bandingkan `printf(s)` vs `printf("%s", s)` di mana `s` berisi `"%x %x %x"`. Apa beda output? (Jangan pakai pola `printf(s)` ini di kode nyata!)
-
-**Pertanyaan refleksi:**
-
-1. Apa beda "undefined behavior" dan "error/bug biasa"? Kenapa UB lebih berbahaya?
-2. Kenapa compiler boleh "berasumsi UB tidak terjadi"? Beri contoh bagaimana asumsi ini menghapus kode yang kamu tulis.
-3. Jelaskan langkah demi langkah bagaimana buffer overflow di stack bisa membajak alur program. Konsep apa dari Bab 4 & 5 yang bersatu di sini?
-4. Kenapa `strcpy` berbahaya tapi `snprintf` aman? Apa prinsip umum di balik penyalinan yang aman?
-5. Sebutkan tiga lapisan pertahanan terhadap buffer overflow. Kenapa "kode yang benar" tetap yang paling penting meski ada mitigasi otomatis?
-6. Bagaimana integer overflow (Bab 2) bisa menjadi akar kerentanan memori? Beri contoh.
-7. Kenapa `printf(input_user)` berbahaya, dan apa cara amannya?
-8. Mengapa banyak kelas kerentanan ini "khas C"? Apa hubungannya dengan filosofi C yang kita pelajari sejak Bab 1?
+Sebagian besar kerentanan di atas muncul karena C memberi akses langsung ke memori dan tidak melakukan pemeriksaan otomatis pada banyak operasi. Keunggulan ini membuat C sangat efisien, tetapi juga membuat disiplin programmer menjadi bagian penting dari keamanan.
 
 ---
 
-Kita sudah bergerak dari `hello world` di Bab 1, ke memori, pointer, proses, jaringan, kernel, tooling, dan keamanan. Tinggal satu bab lagi, yaitu **Bab 22**. Bab itu berbeda sifatnya: bukan materi teknis baru, melainkan peta jalan ke depan.
+## 21.7 Prinsip Menulis C yang Aman
 
-Di **Bab 22**, kita membahas arah belajar setelah fondasi ini: OS development, kernel, embedded, bare-metal, topik yang perlu dipelajari, dan sumber belajar yang relevan.
+Praktik defensif berikut perlu menjadi kebiasaan saat menulis C.
+
+1. Hindari undefined behavior. Jangan mengandalkan perilaku yang hanya tampak berjalan pada satu compiler atau satu level optimasi.
+2. Batasi semua operasi buffer. Gunakan `snprintf`, `fgets`, dan fungsi lain yang menerima ukuran tujuan.
+3. Validasi semua input eksternal. Periksa panjang, rentang nilai, encoding, dan format.
+4. Periksa overflow sebelum menghitung ukuran alokasi.
+5. Kelola memori dengan disiplin. Setiap `malloc` harus memiliki kepemilikan yang jelas dan setiap `free` hanya dilakukan sekali.
+6. Gunakan string format literal untuk keluarga fungsi `printf`.
+7. Aktifkan warning compiler seperti `-Wall` dan `-Wextra`.
+8. Gunakan sanitizer saat development, terutama AddressSanitizer dan UndefinedBehaviorSanitizer.
+9. Pertahankan mitigasi default seperti stack protector, ASLR, dan NX.
+
+Keamanan pada C bukan fitur yang muncul otomatis. Keamanan dibangun dari validasi, pembatasan ukuran, kepemilikan memori yang jelas, dan pengujian yang cukup.
+
+---
+
+## 21.8 Rangkuman Model Mental
+
+1. Undefined behavior adalah kondisi yang tidak didefinisikan oleh standar C. Compiler boleh mengasumsikan kondisi tersebut tidak terjadi.
+2. Efek undefined behavior dapat menyebar ke optimasi dan mengubah alur program, termasuk menghapus pemeriksaan yang terlihat penting di kode sumber.
+3. Buffer overflow terjadi ketika program menulis melewati kapasitas buffer. Pada stack, kerusakan ini dapat mencapai data penting seperti saved frame pointer dan return address.
+4. Stack buffer overflow dapat mengubah alur eksekusi jika data kontrol tertimpa.
+5. Pertahanan utama adalah kode yang benar. Mitigasi seperti stack canary, ASLR, dan NX membantu, tetapi tidak menggantikan validasi dan pembatasan ukuran.
+6. Integer overflow dapat menjadi awal dari bug memori, terutama saat digunakan untuk menghitung ukuran alokasi.
+7. Format string harus selalu berupa literal yang dikendalikan programmer. Data pengguna tidak boleh digunakan langsung sebagai format.
+8. C memberi kendali besar atas memori. Kendali tersebut harus disertai disiplin yang konsisten.
+
+---
+
+## 21.9 Latihan dan Pertanyaan Refleksi
+
+Lakukan eksperimen berikut hanya pada program milik sendiri dan pada lingkungan yang kamu kendalikan. Tujuannya adalah memahami bug dan mitigasi dari sisi defensif.
+
+### Latihan Praktik
+
+1. Tulis program yang menghitung `INT_MAX + 1`. Compile dengan `-O0`, lalu dengan `-O2`, dan bandingkan hasilnya. Jalankan juga dengan `-fsanitize=undefined`.
+2. Tulis fungsi `cek` dari bagian 21.2. Compile dengan `-O2 -Wall`, lalu amati apakah pemeriksaan `NULL` masih terlihat pada assembly atau perilaku program.
+3. Buat program kecil dengan `char buf[8]; strcpy(buf, argv[1]);`. Jalankan dengan input pendek dan input sangat panjang. Ulangi dengan `-fsanitize=address`.
+4. Perbaiki program tersebut menggunakan `snprintf(buf, sizeof(buf), "%s", argv[1])`. Jalankan kembali dengan input panjang dan amati hasil pemotongannya.
+5. Cetak alamat variabel lokal menggunakan operator `&`, lalu jalankan program beberapa kali. Amati apakah alamat berubah karena ASLR.
+6. Hitung `n + 1` ketika `n = SIZE_MAX`. Jelaskan mengapa hasilnya berbahaya jika digunakan untuk `malloc(n + 1)`.
+7. Bandingkan `printf(s)` dan `printf("%s", s)` ketika `s` berisi `"%x %x %x"`. Gunakan eksperimen ini hanya untuk memahami risiko format string.
+
+### Pertanyaan Refleksi
+
+1. Apa perbedaan undefined behavior dengan error biasa?
+2. Mengapa compiler boleh mengasumsikan undefined behavior tidak terjadi?
+3. Bagaimana undefined behavior dapat membuat pemeriksaan keamanan dihapus oleh optimasi?
+4. Bagaimana stack buffer overflow dapat memengaruhi return address?
+5. Mengapa `strcpy` berbahaya pada input yang panjangnya tidak dibatasi?
+6. Apa peran `snprintf` dalam membatasi penulisan ke buffer?
+7. Mengapa mitigasi seperti stack canary, ASLR, dan NX tetap tidak cukup tanpa kode yang benar?
+8. Bagaimana integer overflow dapat menyebabkan alokasi buffer yang terlalu kecil?
+9. Mengapa `printf(input_user)` berbahaya?
+
+---
+
+Bab ini menutup pembahasan tentang risiko utama dalam pemrograman C modern. Bab berikutnya membahas arah belajar setelah menguasai dasar-dasar C, termasuk sistem operasi, kernel, embedded, dan bare-metal programming.
+

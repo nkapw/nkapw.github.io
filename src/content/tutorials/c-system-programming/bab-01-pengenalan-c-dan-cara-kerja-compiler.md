@@ -1,68 +1,64 @@
 ---
-title: "Bab 1 — Pengenalan C & Cara Kerja Compiler"
-description: "Di bab pertama ini kita belum menulis kode yang rumit. Fokusnya adalah memahami apa itu C, kenapa bahasa ini penting, dan apa yang terjadi sejak kamu menulis source..."
-tags: [c, system-programming]
+title: "Bab 1 - Pengenalan C dan Cara Kerja Compiler"
+description: "Untuk memahami C, kita perlu memahami hubungan antara kode, memori, compiler, sistem operasi, dan CPU."
+tags: [c, systems-programming]
 order: 1
-updated: 2026-06-20
+updated: 2026-07-02
 ---
+> Untuk memahami C, kita perlu memahami hubungan antara kode, memori, compiler, sistem operasi, dan CPU.
 
-> "Untuk mengerti C, kamu perlu berhenti melihat program hanya sebagai teks, lalu mulai melihatnya sebagai instruksi yang akhirnya dijalankan mesin."
+Bab ini membangun dasar sebelum kita menulis program yang lebih kompleks. Fokus utamanya adalah memahami apa itu bahasa C, mengapa C penting dalam system programming, dan apa yang terjadi sejak kode ditulis sampai program dapat dijalankan oleh komputer.
 
-Di bab pertama ini kita belum menulis kode yang rumit. Fokusnya adalah memahami apa itu C, kenapa bahasa ini penting, dan apa yang terjadi sejak kamu menulis source code sampai program benar-benar berjalan di komputer.
-
-Banyak orang belajar C dengan langsung masuk ke `printf`. Itu tidak salah, tapi untuk buku ini kita mulai dari gambaran besarnya dulu. Kalau alur dari kode ke executable sudah jelas, bab-bab berikutnya akan jauh lebih mudah diikuti.
-
----
-
-## 1.1 Kenapa C? Dan kenapa C itu spesial
-
-Bayangkan bahasa pemrograman sebagai lapisan di atas hardware:
-
-- **High-level (Python, JavaScript, Java)** — nyaman, banyak fasilitas, dan banyak detail teknis disembunyikan. Ada garbage collector, dynamic typing, runtime besar, dan library yang melimpah. Kamu bisa produktif, tapi biasanya jauh dari cara kerja mesin.
-- **Assembly** — sangat dekat dengan CPU. Tiap instruksi yang ditulis hampir langsung mencerminkan instruksi mesin. Kuat, tapi melelahkan dan tidak portable karena tiap arsitektur CPU punya assembly sendiri.
-- **C** — berada di tengah. C cukup dekat dengan hardware untuk mengakses memori dan memahami eksekusi program, tapi masih cukup terstruktur untuk ditulis dan dipindahkan ke berbagai mesin.
-
-Karena posisi itu, C sering disebut **"portable assembly"**: bahasa yang rendah levelnya, tetapi masih bisa dibaca manusia. C memberi kontrol besar atas memori dan eksekusi, tanpa memaksa kita menulis instruksi CPU satu per satu.
-
-### Kenapa ini penting buat system programming?
-
-Banyak komponen penting di dunia komputasi ditulis dengan C, atau dengan bahasa yang sangat dekat dengannya:
-
-- **Kernel Linux** — inti dari Android, server, dan supercomputer. Ditulis dominan dengan C.
-- **Database** seperti PostgreSQL, SQLite, Redis; **web server** seperti nginx; dan **interpreter bahasa lain** seperti CPython.
-- **Firmware & embedded** — kode di microcontroller, router, perangkat industri, kendaraan, dan banyak perangkat sehari-hari.
-
-Kalau kamu ingin memahami bagaimana komputer bekerja di balik layar, C adalah lensa yang sangat bagus. Bukan karena C selalu menjadi pilihan terbaik untuk semua hal, tetapi karena C tidak banyak menyembunyikan detail penting: memori, alamat, byte, layout data, dan interaksi dengan sistem operasi. Kalau kamu salah mengelola memori, C tidak akan menyelamatkanmu. Justru dari situ kamu belajar bagaimana mesin sebenarnya bekerja.
-
-### Sedikit sejarah
-
-C dibuat sekitar **1972** oleh **Dennis Ritchie** di Bell Labs. Tujuan awalnya praktis: menulis ulang sistem operasi **UNIX** agar bisa dipindahkan ke berbagai komputer. Sebelumnya, sistem operasi banyak ditulis dengan assembly yang sangat bergantung pada satu jenis mesin.
-
-Karena lahir dari kebutuhan system programming, desain C memang dekat dengan konsep hardware: memori, alamat, byte, dan instruksi. Itu bukan kebetulan; itu bagian dari karakter dasar bahasa ini.
+Pemahaman ini penting karena C tidak banyak menyembunyikan detail kerja komputer. Jika alur kompilasi dan eksekusi sudah jelas sejak awal, pembahasan tentang memori, pointer, proses, file, dan debugging pada bab berikutnya akan jauh lebih mudah diikuti.
 
 ---
 
-## 1.2 Komputer cuma ngerti angka
+## 1.1 Mengapa C Penting
 
-Pegang ide ini sejak awal:
+C berada di antara bahasa tingkat tinggi dan assembly. Bahasa seperti Python, JavaScript, dan Java menyediakan banyak abstraksi yang memudahkan pengembangan aplikasi. Assembly berada sangat dekat dengan instruksi CPU, tetapi sulit ditulis, sulit dirawat, dan tidak mudah dipindahkan antararsitektur.
 
-> **CPU tidak mengerti `int`, `printf`, `if`, atau `main`. CPU hanya mengerti angka biner: deretan 0 dan 1 yang mewakili instruksi dan data.**
+C menawarkan keseimbangan yang kuat. Bahasa ini cukup dekat dengan hardware sehingga programmer dapat mengatur memori, alamat, representasi data, dan alur eksekusi secara langsung. Pada saat yang sama, C tetap menyediakan sintaks yang terstruktur dan lebih mudah dibaca dibanding assembly.
 
-Deretan instruksi biner yang bisa langsung dijalankan CPU disebut **machine code**. Tiap jenis CPU punya format machine code sendiri. x86-64 yang umum di PC/laptop dan ARM yang umum di ponsel atau Mac baru punya aturan instruksi masing-masing. Aturan itu disebut **Instruction Set Architecture (ISA)**.
+Karena sifat tersebut, C sering digunakan untuk membangun perangkat lunak yang membutuhkan kontrol rendah terhadap sistem.
 
-Masalahnya, manusia tidak akan menulis `10111000 00000101...` dengan nyaman. Kita butuh alat yang menerjemahkan teks C menjadi machine code. Alat itu disebut **compiler**.
+- Kernel sistem operasi seperti Linux
+- Database seperti PostgreSQL, SQLite, dan Redis
+- Web server seperti nginx
+- Interpreter dan runtime bahasa pemrograman
+- Firmware dan perangkat embedded
+- Driver, toolchain, dan perangkat lunak infrastruktur
 
-Cara membayangkannya: kamu menulis program dalam bahasa yang masih bisa dibaca manusia, lalu compiler menerjemahkan seluruh source code menjadi bentuk yang bisa dijalankan CPU.
+C bukan bahasa yang selalu paling nyaman untuk semua kebutuhan. Namun, C sangat penting ketika tujuan utamanya adalah memahami dan mengendalikan cara komputer bekerja pada level memori dan proses.
 
-> Catatan: ini berbeda dari **interpreter** seperti pada Python. Interpreter menjalankan program dengan menerjemahkan dan mengeksekusi kode saat program berjalan. Compiler menerjemahkan program lebih dulu menjadi executable, lalu executable itu dijalankan langsung oleh CPU. Ini salah satu alasan program C umumnya lebih cepat.
+### Sejarah Singkat C
+
+C dibuat pada awal 1970-an oleh Dennis Ritchie di Bell Labs. Salah satu alasan utama kemunculannya adalah kebutuhan untuk menulis ulang sistem operasi UNIX agar lebih mudah dipindahkan ke berbagai jenis komputer.
+
+Sebelum itu, banyak sistem operasi ditulis menggunakan assembly. Pendekatan tersebut membuat sistem sangat bergantung pada satu jenis mesin. C membantu memisahkan logika sistem dari detail assembly tertentu, tanpa kehilangan kemampuan untuk mengakses konsep penting seperti byte, alamat memori, dan instruksi mesin.
+
+Latar belakang ini menjelaskan mengapa desain C terasa dekat dengan hardware. Kedekatan itu bukan kebetulan, melainkan bagian dari tujuan awal bahasa ini.
 
 ---
 
-## 1.3 Program C pertama, dan kita bedah pelan-pelan
+## 1.2 Komputer Hanya Menjalankan Instruksi Biner
 
-Kita mulai dari `hello world`. Bukan hanya menjalankannya, tapi juga membedah bagian-bagiannya.
+CPU tidak memahami `int`, `printf`, `if`, atau `main` sebagaimana kita membacanya di kode C. CPU menjalankan instruksi dalam bentuk biner, yaitu deretan nilai 0 dan 1 yang merepresentasikan instruksi dan data.
 
-Buat file bernama `hello.c`:
+Instruksi biner yang dapat dijalankan langsung oleh CPU disebut machine code. Setiap keluarga CPU memiliki aturan instruksi sendiri yang disebut Instruction Set Architecture atau ISA. Contohnya adalah x86-64 pada banyak komputer desktop dan server, serta ARM pada banyak ponsel dan beberapa komputer modern.
+
+Menulis program langsung dalam machine code hampir tidak praktis untuk manusia. Karena itu, kita menulis kode dalam bahasa C, lalu menggunakan compiler untuk menerjemahkannya menjadi machine code.
+
+Compiler menerjemahkan source code menjadi program executable sebelum program dijalankan. Ini berbeda dari interpreter seperti yang umum ditemui pada Python, yang membaca dan menjalankan program melalui runtime saat program sedang berjalan.
+
+Perbedaan ini menjadi salah satu alasan program C sering memiliki performa tinggi. Banyak pekerjaan analisis dan penerjemahan dilakukan sebelum program dijalankan, sehingga file executable dapat dijalankan langsung oleh sistem operasi dan CPU.
+
+---
+
+## 1.3 Program C Pertama
+
+Kita mulai dengan program `hello world`.
+
+Buat file bernama `hello.c`.
 
 ```c
 #include <stdio.h>
@@ -73,288 +69,268 @@ int main(void) {
 }
 ```
 
-Jalankan di terminal Linux:
+Kompilasi dan jalankan program tersebut.
 
 ```bash
 gcc hello.c -o hello
 ./hello
 ```
 
-Contoh di buku ini memakai Linux atau lingkungan mirip Unix. Pastikan `gcc` sudah tersedia dengan menjalankan `gcc --version`. Kalau perintah itu tidak ditemukan, berarti compiler C belum terpasang di sistemmu.
+Output yang dihasilkan.
 
-Output:
-
-```
+```text
 Halo, dunia!
 ```
 
-Sekarang kita lihat baris per baris.
+Sekarang kita bahas setiap bagian program.
 
 ### `#include <stdio.h>`
 
-Tanda `#` di awal berarti baris ini adalah **directive** untuk **preprocessor**. Detailnya kita bahas di Section 1.4. Untuk sekarang, `#include <stdio.h>` berarti: sebelum kode dikompilasi, ambil isi file `stdio.h` dan tempelkan ke sini.
+Baris yang diawali `#` adalah directive untuk preprocessor. `#include <stdio.h>` meminta preprocessor mengambil isi header `stdio.h` sebelum proses kompilasi utama dilakukan.
 
-`stdio.h` adalah **header file**. `stdio` berarti standard input/output. Isinya antara lain **deklarasi** fungsi `printf`: informasi bahwa ada fungsi bernama `printf`, fungsi itu menerima argumen tertentu, dan mengembalikan nilai bertipe `int`. Tanpa deklarasi ini, compiler tidak memiliki informasi yang cukup saat melihat pemanggilan `printf`.
+`stdio.h` adalah header untuk standard input dan output. Di dalamnya terdapat deklarasi fungsi seperti `printf`. Deklarasi memberi tahu compiler bahwa fungsi tersebut ada, bentuk argumennya seperti apa, dan nilai baliknya bertipe apa.
 
-Header `stdio.h` berisi **deklarasi**, bukan **definisi** fungsi `printf`. Deklarasi adalah janji bahwa fungsi itu ada. Definisi adalah kode fungsi yang sebenarnya. Kode `printf` sudah tersedia dalam **C standard library**, dan akan disambungkan ke program kita saat tahap linking. Perbedaan deklarasi dan definisi akan sering muncul lagi di bab-bab berikutnya.
+Header tidak berisi implementasi lengkap dari `printf`. Implementasi sebenarnya berada di C standard library. Kode library tersebut akan dihubungkan ke program pada tahap linking.
 
-Dengan kata lain, `printf` bukan keyword khusus di C. Ia fungsi library biasa. Header memberi tahu compiler cara memanggilnya, sedangkan kode fungsi sebenarnya disediakan oleh library dan disambungkan saat program dibangun.
+Perbedaan antara deklarasi dan definisi akan sering muncul dalam C. Deklarasi menyatakan bahwa sesuatu tersedia. Definisi menyediakan isi atau implementasinya.
 
 ### `int main(void)`
 
-Ini adalah **definisi fungsi** bernama `main`. Dalam program C biasa, `main` adalah titik masuk utama program. Saat program dijalankan, sistem operasi melalui kode startup akan memanggil `main`.
+`main` adalah fungsi utama program C. Saat program dijalankan, sistem operasi dan kode startup akan menyiapkan lingkungan eksekusi, lalu memanggil `main`.
 
-- `int` di depan berarti `main` mengembalikan nilai bertipe **integer**.
-- `(void)` berarti `main` tidak menerima argumen. Nanti ada bentuk lain, `int main(int argc, char **argv)`, untuk membaca argumen command-line. Itu akan dibahas di bab proses.
-- `{ ... }` adalah **body** fungsi, yaitu blok kode yang dijalankan.
+Kata `int` menunjukkan bahwa `main` mengembalikan nilai bertipe integer. Nilai ini menjadi exit code program. Bagian `(void)` menunjukkan bahwa fungsi `main` pada contoh ini tidak menerima argumen.
+
+Kurung kurawal `{ ... }` membentuk body fungsi. Semua statement di dalamnya dijalankan ketika fungsi tersebut dipanggil.
 
 ### `printf("Halo, dunia!\n");`
 
-Baris ini memanggil fungsi `printf` untuk mencetak teks ke layar. Lebih tepatnya, teks ditulis ke **standard output**, yang akan kita bahas lebih dalam di Bab 12.
+`printf` digunakan untuk menulis teks ke standard output, yang pada contoh ini terlihat sebagai terminal.
 
-- String diapit tanda kutip ganda `"..."`.
-- `\n` adalah **escape sequence** untuk karakter newline. Itu satu karakter, walaupun ditulis dengan dua simbol.
-- `;` menandai **akhir statement**. Di C, titik koma diperlukan. Compiler perlu tahu di mana satu perintah berakhir.
+String ditulis di antara tanda kutip ganda. Urutan `\n` adalah escape sequence untuk newline, yaitu karakter pindah baris. Tanda titik koma `;` menandai akhir statement. Dalam C, titik koma wajib ditulis pada akhir banyak statement.
 
 ### `return 0;`
 
-`main` mengembalikan `0` ke sistem operasi. Konvensinya, **`0` berarti sukses**, sedangkan nilai bukan nol berarti terjadi error. Nilai ini disebut **exit status** atau **exit code**.
+`return 0;` mengembalikan nilai 0 dari `main` ke sistem operasi. Secara umum, nilai 0 berarti program selesai dengan sukses. Nilai selain 0 biasanya digunakan untuk menandakan kegagalan atau kondisi khusus.
 
-Kamu bisa melihatnya di terminal setelah program dijalankan:
+Exit code dapat diperiksa di terminal setelah program dijalankan.
 
 ```bash
 ./hello
-echo $?      # mencetak exit code program terakhir -> 0
+echo $?
 ```
 
-Exit code bukan formalitas. Di scripting dan automation, program lain sering menentukan apakah sebuah perintah berhasil atau gagal dari angka ini.
+Exit code penting dalam scripting dan automation karena program lain dapat memeriksa apakah sebuah program berhasil dijalankan.
 
 ---
 
-## 1.4 Perjalanan dari `.c` ke program yang jalan
+## 1.4 Dari File `.c` Menjadi Program Executable
 
-Saat kamu mengetik:
+Saat menjalankan perintah berikut, GCC melakukan beberapa tahap berurutan.
 
 ```bash
 gcc hello.c -o hello
 ```
 
-kelihatannya hanya ada satu langkah. Di balik layar, prosesnya terdiri dari empat tahap utama:
+Secara umum, prosesnya terdiri dari empat tahap.
 
-```
+```text
 hello.c
    |
-   |  [1] PREPROCESSING       -> hello.i   (masih teks C, sudah "dibersihkan")
+   |  [1] preprocessing
    v
-   |  [2] COMPILATION         -> hello.s   (assembly)
+hello.i
+   |
+   |  [2] compilation
    v
-   |  [3] ASSEMBLY            -> hello.o   (machine code, "object file")
+hello.s
+   |
+   |  [3] assembly
    v
-   |  [4] LINKING             -> hello     (executable, siap jalan)
+hello.o
+   |
+   |  [4] linking
    v
-program jalan!
+hello
 ```
 
-`gcc` berperan sebagai driver yang menjalankan tool lain untuk tiap tahap. Kita akan melihat tahap-tahap ini satu per satu, dan menghentikan `gcc` di tiap tahap agar hasil antaranya bisa diperiksa.
+GCC dapat dianggap sebagai driver yang memanggil komponen lain untuk menyelesaikan tiap tahap. Kita dapat menghentikan proses pada tahap tertentu untuk melihat hasil antara.
 
-### Tahap 1 — Preprocessing
+### Tahap 1 - Preprocessing
 
-Yang bekerja di tahap ini adalah **preprocessor**. Tugasnya memanipulasi teks sebelum compiler benar-benar membaca kode C. Ia belum memahami tipe, fungsi, atau aturan semantik C. Pekerjaannya antara lain:
+Preprocessor bekerja sebelum compiler utama membaca program C. Tugasnya adalah memproses directive seperti `#include`, mengganti macro, membuang komentar, dan menangani conditional compilation seperti `#ifdef`.
 
-- Mengganti tiap `#include` dengan **isi** file header tersebut.
-- Mengganti **macro** (`#define`) dengan nilainya.
-- Membuang komentar.
-- Memproses conditional compilation seperti `#ifdef`.
-
-Coba jalankan:
+Jalankan perintah berikut untuk berhenti setelah preprocessing.
 
 ```bash
 gcc -E hello.c -o hello.i
 ```
 
-Flag `-E` berarti berhenti setelah preprocessing.
+File `hello.i` masih berupa teks C, tetapi isinya sudah diperluas. Header seperti `stdio.h` sudah dimasukkan ke dalam file hasil preprocessing. Karena itu, file yang awalnya pendek dapat berubah menjadi ratusan atau ribuan baris.
 
-Buka `hello.i`. File yang awalnya hanya beberapa baris bisa berubah menjadi ratusan atau ribuan baris, karena isi `stdio.h` dan header lain yang terkait ikut ditempelkan. Di bagian bawah file, kamu akan menemukan kode `main` milikmu, dengan deklarasi fungsi seperti `printf` muncul sebelumnya.
+Pada tahap ini, preprocessor belum memeriksa makna program secara mendalam. Ia hanya melakukan transformasi teks sesuai directive yang ditemukan.
 
-Pada titik ini, `#include <stdio.h>` sudah tidak terlihat sebagai `#include` lagi. Ia sudah diganti oleh isi header. Preprocessor tidak menjalankan program; ia hanya mengubah teks.
+### Tahap 2 - Compilation
 
-### Tahap 2 — Compilation
+Tahap compilation menerjemahkan hasil preprocessing menjadi assembly. Pada tahap ini compiler mulai memahami struktur program. Compiler memeriksa sintaks, tipe data, pemanggilan fungsi, dan melakukan optimasi tertentu.
 
-Yang bekerja di tahap ini adalah **compiler** dalam arti yang lebih sempit. Compiler mengambil teks C hasil preprocessing (`hello.i`) dan menerjemahkannya menjadi **assembly**: representasi instruksi mesin dalam bentuk teks yang masih bisa dibaca manusia.
-
-Di sinilah compiler mem-parsing kode, mengecek syntax dan tipe, melakukan optimasi, lalu menghasilkan instruksi level rendah.
-
-Coba jalankan:
+Jalankan perintah berikut untuk menghasilkan assembly.
 
 ```bash
-gcc -S -masm=intel hello.c -o hello.s
+gcc -S hello.c -o hello.s
 ```
 
-Flag `-S` berarti berhenti setelah menghasilkan assembly. Flag `-masm=intel` meminta GCC menulis assembly dengan gaya Intel, yang lebih dekat dengan contoh di bawah. Tanpa flag ini, GCC di Linux biasanya memakai gaya AT&T; hasilnya tetap benar, tetapi bentuk penulisannya berbeda.
+Isi `hello.s` adalah representasi instruksi mesin dalam bentuk teks. Bentuk persisnya dapat berbeda tergantung arsitektur CPU, sistem operasi, versi compiler, dan opsi optimasi.
 
-Buka `hello.s`. Isinya kira-kira seperti ini di x86-64 Linux. Hasil persisnya bisa berbeda tergantung compiler, versi, flag, dan platform:
+Contoh ringkas pada sistem x86-64 dapat terlihat seperti ini.
 
 ```asm
 main:
     push    rbp
     mov     rbp, rsp
-    lea     rax, .LC0          ; alamat string "Halo, dunia!"
-    mov     rdi, rax           ; siapkan argumen pertama untuk printf
-    call    puts               ; panggil fungsi (gcc optimasi printf -> puts)
-    mov     eax, 0             ; nilai return 0
+    lea     rax, .LC0
+    mov     rdi, rax
+    call    puts
+    mov     eax, 0
     pop     rbp
-    ret                        ; kembali ke pemanggil
+    ret
 .LC0:
     .string "Halo, dunia!"
 ```
 
-Kamu belum perlu memahami tiap instruksi. Itu akan dibahas di Bab 3 dan Bab 4. Untuk sekarang, perhatikan bahwa kode C sudah diterjemahkan menjadi instruksi seperti `mov`, `call`, dan `ret`. Bahkan pemanggilan `printf` bisa dioptimasi menjadi `puts` karena string yang dicetak tidak memakai format khusus.
+Belum perlu memahami semua instruksi assembly pada tahap ini. Hal pentingnya adalah melihat bahwa kode C diterjemahkan menjadi instruksi level rendah. Compiler juga dapat mengubah bentuk instruksi selama perilaku akhir program tetap sama menurut aturan bahasa C.
 
-Compiler boleh mengubah bentuk instruksi selama perilaku program tetap sama. Itulah inti optimasi. Coba bandingkan:
+### Tahap 3 - Assembly
 
-```bash
-gcc -S -masm=intel -O0 hello.c -o hello_O0.s
-gcc -S -masm=intel -O2 hello.c -o hello_O2.s
-```
+Assembler mengubah file assembly menjadi object file. Object file berisi machine code biner, tetapi belum menjadi program utuh yang siap dijalankan.
 
-Assembly yang dihasilkan bisa berbeda jauh.
-
-### Tahap 3 — Assembly
-
-Yang bekerja di tahap ini adalah **assembler** (`as`). Tugasnya mengubah teks assembly (`hello.s`) menjadi **machine code biner**, lalu membungkusnya dalam **object file** (`.o`).
+Jalankan perintah berikut.
 
 ```bash
 gcc -c hello.c -o hello.o
 ```
 
-`hello.o` sudah berisi instruksi mesin dalam bentuk biner. Jangan dibuka dengan text editor biasa, karena isinya bukan teks biasa. Gunakan tool seperti ini:
+File `hello.o` sudah berisi instruksi mesin. Namun, file ini biasanya belum dapat dijalankan secara langsung karena masih membutuhkan proses linking.
+
+Salah satu alasannya adalah pemanggilan fungsi library seperti `printf` atau `puts`. Object file dapat mencatat bahwa fungsi tersebut dibutuhkan, tetapi alamat dan kode finalnya belum diselesaikan. Nama yang belum terselesaikan seperti ini disebut unresolved symbol.
+
+Kita dapat memeriksa object file dengan beberapa tool.
 
 ```bash
-file hello.o          # -> ELF 64-bit relocatable
-objdump -d hello.o    # disassemble: lihat machine code + assembly-nya
+file hello.o
+objdump -d hello.o
 ```
 
-Namun `hello.o` belum bisa dijalankan. Penyebabnya: object file ini masih memiliki referensi yang belum diselesaikan. Ia memanggil `puts` atau `printf`, tetapi kode fungsi itu tidak ada di dalam `hello.o`. Kode tersebut ada di C standard library. Object file hanya mencatat bahwa pada titik tertentu ia membutuhkan fungsi bernama `puts` atau `printf`. Referensi seperti ini disebut **unresolved symbol**.
+### Tahap 4 - Linking
 
-Dengan kata lain, `hello.o` sudah berisi bagian program milik kita, tetapi belum disambungkan dengan bagian-bagian dari library yang dibutuhkan.
+Linker menyatukan object file dengan library dan kode pendukung lain yang dibutuhkan. Pada tahap ini, unresolved symbol diselesaikan, alamat fungsi ditetapkan, dan executable akhir dibuat.
 
-### Tahap 4 — Linking
-
-Yang bekerja di tahap ini adalah **linker** (`ld`). Linker menyambungkan object file dan library menjadi executable utuh.
-
-Linker melakukan beberapa hal:
-
-1. Mengambil object file kamu (`hello.o`).
-2. Mengambil object code fungsi-fungsi yang dipakai dari **library**. Dalam contoh ini, `printf` atau `puts` berasal dari **C standard library** atau libc.
-3. Menyelesaikan semua **unresolved symbol** dengan mengisi alamat fungsi yang benar.
-4. Menambahkan **startup code**, sering disebut `crt0` atau `_start`. Kode ini berjalan sebelum `main`, menyiapkan lingkungan program, memanggil `main`, lalu setelah `main` selesai memanggil mekanisme `exit` dengan return value dari `main`.
-5. Menghasilkan satu file **executable** yang siap dijalankan.
-
-Penjelasan di atas adalah model awal yang paling mudah dibayangkan. Dalam praktik modern, banyak program Linux memakai **dynamic linking**. Artinya, executable tidak selalu membawa seluruh kode library di dalam filenya; ia bisa menyimpan informasi bahwa fungsi tertentu akan dicari dari shared library saat program dimuat. Untuk sekarang, cukup pahami bahwa linking menyelesaikan hubungan antara kode program dan kode library yang dipakai.
+Jalankan perintah berikut untuk melakukan linking dari object file.
 
 ```bash
-gcc hello.o -o hello     # tahap link (gcc memanggil linker)
+gcc hello.o -o hello
 ./hello
 ```
 
-Hal penting dari tahap ini: `main` bukan instruksi pertama yang berjalan. Yang pertama berjalan adalah `_start`, yaitu startup code yang ditambahkan saat linking. `_start` kemudian memanggil `main`. Karena itulah `main` bisa melakukan `return`: ia memang dipanggil oleh kode lain.
+Linking juga melibatkan startup code. Kode ini berjalan sebelum `main`, menyiapkan lingkungan awal program, memanggil `main`, lalu mengakhiri program menggunakan nilai balik dari `main`.
 
-### Rangkuman pipeline dalam satu tabel
+Karena itu, secara teknis `main` bukan instruksi pertama yang dijalankan oleh proses. `main` adalah titik masuk utama bagi programmer C, tetapi eksekusi proses dimulai dari kode startup yang disiapkan oleh toolchain dan sistem operasi.
 
-| Tahap | Program | Input | Output | Tugas singkat |
-|-------|---------|-------|--------|---------------|
-| 1. Preprocess | preprocessor (`cpp`) | `.c` | `.i` | Tempel `#include`, ganti macro, buang komentar |
-| 2. Compile | compiler | `.i` | `.s` | Terjemah ke assembly + optimasi |
-| 3. Assemble | assembler (`as`) | `.s` | `.o` | Assembly -> machine code biner |
-| 4. Link | linker (`ld`) | `.o` + library | executable | Sambung semua, isi alamat, tambah startup |
+### Ringkasan Pipeline
 
-Jadi, perintah:
+| Tahap | Program | Input | Output | Tugas |
+|-------|---------|-------|--------|-------|
+| Preprocessing | preprocessor | `.c` | `.i` | Memproses include, macro, komentar, dan conditional compilation |
+| Compilation | compiler | `.i` | `.s` | Menerjemahkan C menjadi assembly |
+| Assembly | assembler | `.s` | `.o` | Mengubah assembly menjadi object file |
+| Linking | linker | `.o` dan library | executable | Menyatukan object file, library, symbol, dan startup code |
 
-```bash
-gcc hello.c -o hello
-```
-
-menjalankan keempat tahap itu secara otomatis.
+Perintah `gcc hello.c -o hello` menjalankan seluruh tahap tersebut secara otomatis.
 
 ---
 
-## 1.5 Apa yang terjadi saat `./hello` dijalankan?
+## 1.5 Saat Program Dijalankan
 
-Setelah source code berubah menjadi executable, pekerjaan berpindah ke sistem operasi. Detailnya akan dibahas lagi di Bab 14, tetapi gambaran awalnya seperti ini:
+Setelah executable dibuat, sistem operasi bertanggung jawab menjalankannya sebagai proses.
 
-1. Kamu mengetik `./hello`.
-2. Shell biasanya membuat proses anak dengan syscall `fork`.
-3. Di proses anak itu, shell memanggil syscall `execve` untuk mengganti program yang sedang berjalan dengan isi executable `hello`.
-4. Kernel membaca header executable. Di Linux, format executable umumnya adalah **ELF** (Executable and Linkable Format). Header ini berisi informasi seperti lokasi kode, lokasi data, dan alamat awal eksekusi (`_start`).
-5. Kernel menyiapkan ruang memori virtual proses tersebut, memetakan isi file ke memori, menyiapkan **stack**, lalu menyerahkan kendali ke `_start`.
-6. `_start` menjalankan kode startup dan memanggil `main`.
-7. `main` berjalan. `printf` dieksekusi, dan di dalamnya pada akhirnya ada syscall `write` untuk menampilkan teks ke terminal.
-8. `main` melakukan `return 0`. Startup code menerima nilai itu dan memanggil syscall `exit(0)`. Proses berakhir, lalu kernel membersihkan resource yang dipakai.
+Alur umumnya sebagai berikut.
 
-Jadi perjalanan program tidak berhenti di compiler. Setelah executable terbentuk, sistem operasi masih harus memuat file itu ke memori, menyiapkan proses, menyiapkan stack, dan memulai eksekusi dari entry point yang benar.
+1. Pengguna menjalankan `./hello` dari shell.
+2. Shell meminta kernel menjalankan file tersebut melalui system call seperti `execve`.
+3. Kernel membaca format executable. Pada Linux, format yang umum digunakan adalah ELF atau Executable and Linkable Format.
+4. Kernel membuat process baru, menyiapkan memori virtual, memetakan bagian kode dan data, menyiapkan stack, lalu memulai eksekusi dari entry point.
+5. Startup code menjalankan persiapan awal dan memanggil `main`.
+6. `main` menjalankan kode program. Pada contoh ini, `printf` menulis teks ke output.
+7. Nilai balik dari `main` digunakan sebagai exit code. Kernel kemudian membersihkan resource milik process.
+
+Detail proses ini akan dibahas lebih dalam pada bab tentang sistem operasi dan proses. Untuk saat ini, yang perlu dipahami adalah bahwa executable tidak berjalan sendirian. Sistem operasi menyiapkan lingkungan eksekusi sebelum instruksi program dijalankan.
 
 ---
 
-## 1.6 Flag `gcc` yang perlu kamu kenal sejak awal
+## 1.6 Opsi GCC yang Perlu Dikenal Sejak Awal
 
-Biasakan menyalakan warning sejak awal. Ini akan menangkap banyak kesalahan sebelum program dijalankan:
+Saat belajar C, biasakan menyalakan warning. Warning membantu menemukan kesalahan yang sering sulit dilacak jika dibiarkan.
 
 ```bash
 gcc -Wall -Wextra -g -O0 hello.c -o hello
 ```
 
-- `-Wall` — menyalakan banyak warning umum. Namanya "Warning all", walaupun sebenarnya bukan semua warning.
-- `-Wextra` — menyalakan warning tambahan yang lebih ketat.
-- `-g` — menyertakan **debug info**, supaya program bisa diperiksa dengan `gdb` nanti. Kita bahas di Bab 20.
-- `-O0` — mematikan optimasi. Ini bagus saat belajar atau debugging karena assembly dan alur eksekusinya lebih dekat dengan source code.
-- `-o hello` — menentukan nama file output.
-- `-std=c11` — opsional, untuk menetapkan versi standar C yang dipakai, misalnya C11 atau C17.
+Penjelasan opsi tersebut.
 
-Anggap warning sebagai hal yang harus dibereskan, bukan sekadar pesan tambahan. Kalau ingin lebih ketat, kamu bisa memakai `-Werror` agar kompilasi gagal ketika ada warning. Banyak bug C dimulai dari warning yang diabaikan.
+- `-Wall` mengaktifkan banyak warning umum.
+- `-Wextra` mengaktifkan warning tambahan.
+- `-g` menyertakan informasi debug agar program dapat dianalisis dengan debugger seperti `gdb`.
+- `-O0` mematikan optimasi sehingga hasil kompilasi lebih mudah dikaitkan dengan source code saat debugging.
+- `-o hello` menentukan nama file output.
+- `-std=c11` dapat digunakan untuk menetapkan standar bahasa C yang dipakai.
 
----
-
-## 1.7 Model mental yang harus kamu bawa ke bab-bab berikutnya
-
-Tiga ide ini akan terus dipakai:
-
-1. **C dekat dengan hardware.** Banyak konstruksi C punya hubungan yang jelas dengan CPU dan memori. Kalau bingung, tanyakan: ini kira-kira menjadi instruksi atau layout memori seperti apa?
-2. **Compiler menerjemahkan program sebelum dijalankan.** Tidak ada runtime besar yang menafsirkan program baris demi baris seperti pada bahasa interpreted. Yang dijalankan CPU adalah hasil terjemahan compiler, setelah melewati preprocessing, compilation, assembly, dan linking.
-3. **C memberi kontrol, tetapi tidak memberi banyak perlindungan.** Kalau kamu salah mengelola memori, hasilnya bisa crash, data korup, atau bug yang sulit dilacak. C menganggap programmer tahu apa yang dilakukan.
+Pada proyek nyata, warning sebaiknya dianggap serius. Banyak bug dalam C berawal dari warning yang diabaikan. Jika ingin lebih ketat, opsi `-Werror` dapat digunakan agar kompilasi gagal ketika ada warning.
 
 ---
 
-## 1.8 Latihan & Pertanyaan Refleksi
+## 1.7 Rangkuman Model Mental
 
-Coba kerjakan, jangan hanya dibaca. Pemahaman C datang dari mengetik, menjalankan, merusakkan, lalu mengamati hasilnya.
+Ada tiga hal penting yang perlu dibawa ke bab berikutnya.
 
-**Latihan praktik:**
+1. C dekat dengan hardware. Banyak konsep C berkaitan langsung dengan memori, alamat, representasi data, dan instruksi mesin.
+2. Compiler menerjemahkan program sebelum dijalankan. File executable adalah hasil dari proses preprocessing, compilation, assembly, dan linking.
+3. C memberi kontrol besar kepada programmer. Kontrol ini membuat C sangat kuat, tetapi juga menuntut ketelitian. Kesalahan dalam pengelolaan memori atau tipe data dapat menyebabkan crash, data rusak, atau perilaku yang sulit diprediksi.
 
-1. Tulis ulang `hello.c` dari nol, tanpa copy-paste. Compile dan jalankan. Lalu sengaja buat error: hapus titik koma setelah `printf(...)`. Baca pesan error dari `gcc`. Apa yang dikatakan compiler?
-2. Jalankan keempat tahap secara manual dan amati tiap output:
+Dengan model mental ini, C tidak hanya terlihat sebagai kumpulan sintaks. C menjadi cara untuk memahami bagaimana program benar-benar bekerja di atas sistem operasi dan hardware.
+
+---
+
+## 1.8 Latihan dan Pertanyaan Refleksi
+
+Kerjakan latihan berikut dengan mengetik sendiri programnya. Pemahaman C akan lebih kuat jika diperoleh melalui percobaan langsung.
+
+### Latihan Praktik
+
+1. Tulis ulang `hello.c` dari awal, kompilasi, lalu jalankan.
+2. Hapus titik koma setelah `printf(...)`, lalu kompilasi kembali. Amati pesan error yang diberikan compiler.
+3. Jalankan setiap tahap kompilasi secara manual.
+
    ```bash
    gcc -E hello.c -o hello.i
-   gcc -S -masm=intel hello.c -o hello.s
+   gcc -S hello.c -o hello.s
    gcc -c hello.c -o hello.o
    gcc hello.o -o hello
    ```
-   Berapa baris isi `hello.i`? Bisakah kamu menemukan deklarasi `printf` di dalamnya?
-3. Buka `hello.s`. Temukan teks `"Halo, dunia!"` di dalamnya. Di bagian mana teks itu muncul?
-4. Ganti `return 0;` menjadi `return 42;`. Compile, jalankan, lalu jalankan `echo $?`. Apa yang tercetak? Kenapa?
-5. Jalankan `objdump -d hello.o` dan `file hello`. Apa perbedaan informasi yang ditampilkan untuk `.o` dan executable?
 
-**Pertanyaan refleksi:**
+4. Buka `hello.i` dan cari deklarasi `printf`.
+5. Buka `hello.s` dan cari string `Halo, dunia!`.
+6. Ubah `return 0;` menjadi `return 42;`, kompilasi ulang, jalankan program, lalu periksa exit code dengan `echo $?`.
+7. Jalankan `file hello.o` dan `file hello`, lalu bandingkan hasilnya.
+8. Jalankan `objdump -d hello.o` untuk melihat instruksi assembly dari object file.
 
-1. Dengan kata-katamu sendiri, apa perbedaan **compiler** dan **interpreter**? Kenapa program C umumnya lebih cepat daripada Python?
-2. Kenapa `hello.o` belum bisa dijalankan, padahal sudah berisi machine code? Apa yang masih kurang?
-3. Apa perbedaan **deklarasi** dan **definisi** sebuah fungsi? `stdio.h` menyediakan yang mana?
-4. Kalau kamu menghapus `#include <stdio.h>` tetapi tetap memakai `printf`, kira-kira tahap mana yang akan protes: preprocess, compile, atau link? Kenapa?
-5. Siapa sebenarnya yang memanggil `main`? Apa artinya bagi pemahamanmu tentang kalimat "program mulai dari `main`"?
+### Pertanyaan Refleksi
 
-> Kalau pertanyaan nomor 4 membuatmu penasaran, langsung praktikkan dan amati pesannya. Cara belajar C yang efektif adalah membuat program rusak dengan sengaja, lalu memahami kenapa ia rusak.
+1. Apa perbedaan compiler dan interpreter?
+2. Mengapa `hello.o` belum menjadi program yang siap dijalankan?
+3. Apa perbedaan deklarasi dan definisi fungsi?
+4. Apa peran `stdio.h` dalam program yang menggunakan `printf`?
+5. Mengapa `main` disebut titik masuk program, meskipun bukan instruksi pertama yang dijalankan oleh proses?
 
 ---
 
-Sampai di sini, kamu sudah melihat jalur lengkap dari file `.c` sampai program berjalan: preprocessing, compilation, assembly, linking, loading oleh sistem operasi, pemanggilan `main`, sampai exit code kembali ke shell.
+Sampai di sini, kita sudah memahami gambaran besar bahasa C dan proses kompilasi. Pada bab berikutnya, kita akan membahas bagaimana data seperti angka dan karakter disimpan sebagai bit dan byte di memori.
 
-Di Bab 2, kita turun ke bahan paling dasar yang dipakai program: data. Kita akan membahas bagaimana angka dan karakter disimpan sebagai bit dan byte di memori, kenapa `0.1 + 0.2 != 0.3`, dan apa itu two's complement.

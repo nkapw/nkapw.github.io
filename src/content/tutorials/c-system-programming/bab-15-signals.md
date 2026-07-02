@@ -1,217 +1,249 @@
 ---
-title: "Bab 15 — Signals"
-description: "Di Bab 14 kita melihat proses lahir, berubah wujud, dan selesai. Selama hidupnya, proses juga bisa menerima gangguan dari luar. Kamu bisa menekan Ctrl+C untuk..."
-tags: [c, system-programming]
+title: "Bab 15 - Signal"
+description: "Pada Bab 14, proses dibahas sebagai program yang sedang berjalan dengan ruang memori, file descriptor, dan state eksekusi sendiri. Selama berjalan, proses dapat..."
+tags: [c, systems-programming]
 order: 15
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Pada Bab 14, proses dibahas sebagai program yang sedang berjalan dengan ruang memori, file descriptor, dan state eksekusi sendiri. Selama berjalan, proses dapat menerima pemberitahuan dari kernel, terminal, atau proses lain. Mekanisme pemberitahuan tersebut disebut signal.
 
-> "Signal itu seperti seseorang menepuk pundakmu saat kamu sedang fokus bekerja. Kamu terpaksa berhenti sejenak, menengok, menangani tepukan itu, lalu (kalau beruntung) kembali ke pekerjaanmu. Bedanya, tepukan ini bisa datang kapan saja — bahkan di tengah satu baris kode."
-
-Di Bab 14 kita melihat proses lahir, berubah wujud, dan selesai. Selama hidupnya, proses juga bisa menerima gangguan dari luar. Kamu bisa menekan **Ctrl+C** untuk menghentikannya, menjalankan `kill` dari terminal, atau membuat kernel mengirim pemberitahuan karena proses melakukan akses memori ilegal (ingat segfault dari Bab 6). Mekanisme di balik semua ini adalah **signal**.
-
-Signal adalah cara sederhana bagi satu proses, atau kernel, untuk memberi notifikasi ke proses lain. Ia adalah bentuk komunikasi dan kontrol yang asinkron. Bab ini juga memperdalam dua hal yang sudah kita temui, yaitu **function pointer** dari Bab 7, karena signal handler adalah callback, dan **segmentation fault** dari Bab 6, yang ternyata dikirim sebagai signal.
+Signal digunakan untuk banyak kejadian penting. Saat pengguna menekan Ctrl+C, proses foreground menerima `SIGINT`. Saat sebuah proses dihentikan dengan perintah `kill`, proses tersebut menerima signal. Saat program mengakses memori yang tidak valid, kernel mengirim `SIGSEGV`. Dengan memahami signal, kita dapat memahami cara proses dihentikan, diberi tahu, atau diminta membersihkan resource sebelum keluar.
 
 ---
 
-## 15.1 Apa itu signal?
+## 15.1 Pengertian Signal
 
-> **Signal adalah notifikasi asinkron yang dikirim ke sebuah proses untuk memberitahukan bahwa suatu kejadian terjadi.** Bentuknya angka kecil. Tiap signal punya nomor dan nama, lalu bisa menginterupsi alur normal proses.
+Signal adalah notifikasi asinkron yang dikirim ke proses untuk memberitahukan bahwa suatu kejadian terjadi. Setiap signal memiliki nomor dan nama. Signal dapat datang dari kernel, terminal, atau proses lain.
 
-Kata kuncinya adalah **asinkron**. Signal bisa tiba **kapan saja**, tidak peduli proses sedang melakukan apa, bahkan di tengah-tengah sebuah perhitungan atau satu baris kode. Ini berbeda dari pemanggilan fungsi biasa yang urutannya kamu kendalikan.
+Kata asinkron penting karena signal dapat tiba di luar alur normal program. Program tidak memanggil signal seperti memanggil fungsi biasa. Signal dapat tiba ketika proses sedang menjalankan perhitungan, memanggil fungsi pustaka, menunggu I/O, atau berada di bagian lain dari kode.
 
-Sifat asinkron inilah yang membuat signal berguna, tetapi juga membuat signal handler perlu ditulis sangat hati-hati (Bagian 15.6). Handler bisa berjalan pada saat program utama sedang berada di kondisi sementara yang belum stabil, misalnya saat library sedang mengubah buffer internal.
+Ketika signal diterima, proses dapat bereaksi dengan beberapa cara.
 
-Saat signal tiba, proses bisa bereaksi dengan salah satu dari tiga cara.
+1. Mengikuti aksi bawaan signal.
+2. Mengabaikan signal jika signal tersebut boleh diabaikan.
+3. Menangkap signal dengan signal handler.
 
-1. **Default action** — perilaku bawaan signal itu (sering: terminate proses).
-2. **Ignore** — abaikan signal (untuk signal yang boleh diabaikan).
-3. **Catch / handle** — jalankan fungsi khusus buatanmu (**signal handler**) saat signal tiba.
-
-Signal bisa dibayangkan seperti pemberitahuan mendadak dari luar proses. Untuk beberapa pemberitahuan, proses boleh mengabaikannya. Untuk yang lain, proses mengikuti perilaku default, misalnya berhenti. Proses juga bisa memasang rencana khusus, seperti menandai bahwa ia harus berhenti, lalu membiarkan alur utama menyimpan state atau menutup file sebelum keluar.
+Signal handler adalah fungsi yang didaftarkan oleh program untuk dijalankan ketika signal tertentu diterima. Konsep ini berkaitan langsung dengan function pointer yang sudah dibahas pada Bab 7, karena alamat fungsi handler disimpan dan dipanggil kembali saat signal datang.
 
 ---
 
-## 15.2 Signal-signal yang perlu dikenal
+## 15.2 Signal yang Sering Dipakai
 
-Ada puluhan signal. Tabel berikut berisi signal yang paling sering kamu temui.
+Berikut beberapa signal yang sering ditemui pada pemrograman sistem.
 
-| Signal | Nomor (umum) | Dipicu oleh | Default action |
-|--------|--------------|-------------|----------------|
-| `SIGINT` | 2 | Ctrl+C di terminal | terminate |
-| `SIGTERM` | 15 | `kill <pid>` (default) | terminate (sopan) |
-| `SIGKILL` | 9 | `kill -9 <pid>` | terminate — **tidak bisa ditangkap/diabaikan** |
-| `SIGSEGV` | 11 | akses memori ilegal (dereference NULL/dangling!) | terminate + core dump |
-| `SIGCHLD` | 17 | child process selesai (Bab 14!) | ignore |
-| `SIGSTOP` | 19 | Ctrl+Z (suspend) | stop — **tidak bisa ditangkap** |
-| `SIGALRM` | 14 | timer (`alarm()`) habis | terminate |
-| `SIGPIPE` | 13 | menulis ke pipe yang ujungnya tertutup (Bab 16) | terminate |
+| Signal | Nomor umum | Pemicu | Aksi bawaan |
+|--------|------------|--------|-------------|
+| `SIGINT` | 2 | Ctrl+C pada terminal | Mengakhiri proses |
+| `SIGTERM` | 15 | `kill <pid>` tanpa opsi khusus | Mengakhiri proses |
+| `SIGKILL` | 9 | `kill -9 <pid>` | Mengakhiri proses secara paksa |
+| `SIGSEGV` | 11 | Akses memori tidak valid | Mengakhiri proses dan dapat membuat core dump |
+| `SIGCHLD` | 17 | Child process selesai | Biasanya diabaikan |
+| `SIGSTOP` | 19 | Penghentian proses sementara | Menghentikan proses sementara |
+| `SIGALRM` | 14 | Timer dari `alarm` habis | Mengakhiri proses |
+| `SIGPIPE` | 13 | Menulis ke pipe yang ujung bacanya tertutup | Mengakhiri proses |
 
-Beberapa catatan penting perlu diperhatikan.
+`SIGSEGV` adalah signal yang muncul ketika program melakukan akses memori ilegal. Contohnya adalah dereference pointer `NULL`, memakai dangling pointer, atau mengakses alamat yang tidak dimiliki proses. CPU dan MMU mendeteksi pelanggaran tersebut, kernel menerimanya, lalu kernel mengirim `SIGSEGV` ke proses.
 
-- **`SIGSEGV`** — inilah "Segmentation fault" yang sudah muncul sejak Bab 6. Saat kamu dereference `NULL` atau dangling pointer, **CPU (lewat MMU) mendeteksi akses memori ilegal dan memberitahu kernel, yang lalu mengirim `SIGSEGV` ke prosesmu.** Default action-nya adalah terminate proses dan membuat **core dump** jika dikonfigurasi. Core dump adalah snapshot memori untuk debugging (Bab 20). Jadi "segfault" sebenarnya adalah signal.
+`SIGTERM` adalah permintaan penghentian yang masih dapat ditangani oleh proses. Program dapat menangkap signal ini untuk menutup file, menyimpan state, atau membersihkan resource sebelum keluar.
 
-- **`SIGKILL` dan `SIGSTOP` tidak bisa ditangkap, diabaikan, atau di-handle.** Ini disengaja karena sistem perlu punya cara pasti untuk menghentikan proses yang tidak merespons. `kill -9` (`SIGKILL`) membuat proses langsung dihentikan kernel tanpa kesempatan membersihkan diri. Karena itu, kirim `SIGTERM` dulu agar proses punya kesempatan cleanup sebelum memakai `SIGKILL`.
+`SIGKILL` tidak dapat ditangkap, diabaikan, atau ditangani. Kernel langsung menghentikan proses. Karena proses tidak mendapat kesempatan membersihkan resource internal, `SIGKILL` sebaiknya dipakai sebagai langkah terakhir setelah `SIGTERM` tidak berhasil.
 
-- **`SIGTERM` vs `SIGKILL`** membedakan permintaan berhenti yang bisa ditangani dari penghentian paksa. `SIGTERM` adalah permintaan "tolong berhenti" yang **bisa** ditangkap, sehingga proses bisa menyimpan data dulu lalu keluar. `SIGKILL` adalah paksaan yang tidak bisa ditolak. `kill <pid>` mengirim `SIGTERM`; `kill -9 <pid>` mengirim `SIGKILL`.
+`SIGSTOP` juga tidak dapat ditangkap atau diabaikan. Signal ini menghentikan proses sementara dan biasanya dikendalikan oleh job control pada shell.
 
 ---
 
-## 15.3 Mengirim signal
+## 15.3 Mengirim Signal
 
-Dari **terminal**, kamu bisa memakai perintah berikut.
+Signal dapat dikirim dari terminal.
+
 ```bash
-kill <pid>          # kirim SIGTERM (default)
-kill -9 <pid>       # kirim SIGKILL
-kill -SIGINT <pid>  # kirim signal tertentu berdasarkan nama
-# Ctrl+C  -> SIGINT ke proses foreground
-# Ctrl+Z  -> SIGSTOP
+kill <pid>
+kill -9 <pid>
+kill -SIGINT <pid>
 ```
 
-Dari **dalam program**, fungsi terkait tersedia lewat `<signal.h>`.
+Perintah `kill <pid>` mengirim `SIGTERM` secara default. Perintah `kill -9 <pid>` mengirim `SIGKILL`. Pengguna juga dapat menekan Ctrl+C untuk mengirim `SIGINT` ke proses foreground pada terminal.
+
+Signal juga dapat dikirim dari program C.
+
 ```c
 #include <signal.h>
-int kill(pid_t pid, int sig);   // kirim signal 'sig' ke proses 'pid'
-int raise(int sig);             // kirim signal ke proses sendiri
+
+int kill(pid_t pid, int sig);
+int raise(int sig);
 ```
 
-Walau namanya `kill`, fungsi ini sebenarnya berarti "kirim signal". Signal yang dikirim tidak harus mematikan proses. Namanya historis, dan memang agak menyesatkan. Ini cara satu proses memberi signal ke proses lain, termasuk parent memberi signal ke child, atau sebaliknya.
+Fungsi `kill` mengirim signal ke proses dengan PID tertentu. Walaupun namanya `kill`, fungsi ini tidak selalu berarti mematikan proses. Signal yang dikirim ditentukan oleh argumen `sig`.
 
-Perintah `kill` di shell dan fungsi `kill()` di C mengikuti gagasan yang sama. Keduanya mengirim signal ke target; apakah target berhenti atau tidak bergantung pada signal yang dikirim dan cara proses target menanganinya.
+Fungsi `raise` mengirim signal ke proses itu sendiri. Fungsi ini sering dipakai untuk pengujian atau untuk memicu perilaku signal secara eksplisit dari dalam program.
 
 ---
 
-## 15.4 Menangkap signal: signal handler
+## 15.4 Menangkap Signal dengan `sigaction`
 
-Di sinilah function pointer dari Bab 7 muncul kembali. Kamu bisa mendaftarkan **signal handler**, yaitu fungsi yang dipanggil saat signal tiba. Fungsi ini adalah **callback**, dan kamu mendaftarkannya lewat alamat fungsi tersebut (function pointer).
-
-Cara modern yang disarankan adalah **`sigaction`**, karena lebih portabel dan lebih terkontrol daripada fungsi lama `signal`.
+Program dapat memasang signal handler untuk menangani signal tertentu. Cara yang disarankan adalah memakai `sigaction`, karena perilakunya lebih jelas dan lebih portabel daripada fungsi lama `signal`.
 
 ```c
-#include <stdio.h>
 #include <signal.h>
+#include <stdio.h>
 #include <unistd.h>
 
-volatile sig_atomic_t berhenti = 0;   // flag (lihat Bagian 15.5 soal tipe ini)
+volatile sig_atomic_t berhenti = 0;
 
-void handler(int signo) {              // signal handler: terima nomor signal
-    berhenti = 1;                      // hanya set flag (alasan di Bagian 15.6)
+void handler(int signo) {
+    (void)signo;
+    berhenti = 1;
 }
 
 int main(void) {
     struct sigaction sa = {0};
-    sa.sa_handler = handler;            // <- function pointer ke handler kita
-    sigaction(SIGINT, &sa, NULL);       // daftarkan: "kalau SIGINT, panggil handler"
+    sa.sa_handler = handler;
+    sigemptyset(&sa.sa_mask);
 
-    printf("Tekan Ctrl+C untuk berhenti dengan rapi...\n");
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("sigaction");
+        return 1;
+    }
+
+    printf("Tekan Ctrl+C untuk berhenti\n");
+
     while (!berhenti) {
-        printf("bekerja...\n");
+        printf("bekerja\n");
         sleep(1);
     }
-    printf("\nSIGINT diterima. Membersihkan & keluar dengan rapi.\n");
+
+    printf("SIGINT diterima, program keluar dengan rapi\n");
     return 0;
 }
 ```
 
-Jalankan program itu, lalu tekan **Ctrl+C**. Alih-alih langsung mati mengikuti default action `SIGINT`, handler berjalan dan men-set `berhenti = 1`. Loop berhenti pada iterasi berikutnya, lalu program keluar **dengan rapi**. Dalam program nyata, titik ini bisa dipakai untuk menyimpan data, mem-`free` memori, atau menutup file.
+Pada contoh tersebut, handler hanya mengubah flag `berhenti`. Loop utama membaca flag tersebut dan melakukan pekerjaan yang aman setelah signal diterima. Pola ini jauh lebih aman daripada melakukan banyak operasi langsung di dalam handler.
 
-Kegunaan utama signal handler adalah *graceful shutdown*. Program menangkap `SIGINT` atau `SIGTERM` agar bisa membersihkan diri, seperti menutup file, menyimpan state, dan melepas resource, sebelum benar-benar berhenti.
-
-`sa.sa_handler = handler` adalah inti hubungannya dengan Bab 7. Kamu menyimpan **alamat fungsi** ke field struct, lalu mekanisme signal akan memanggil balik fungsi itu lewat alamatnya saat signal tiba. Ini konsep callback yang sama.
-
-Perhatikan bahwa handler pada contoh tidak melakukan cleanup langsung. Ia hanya mengubah flag. Cleanup tetap dilakukan setelah loop utama keluar, dalam konteks eksekusi normal. Pola ini sengaja dipakai karena handler bisa berjalan pada waktu yang tidak bisa diprediksi.
+Field `sa.sa_handler` menyimpan alamat fungsi handler. Ini adalah pemakaian function pointer dalam konteks sistem operasi. Ketika `SIGINT` tiba, kernel dan runtime memanggil fungsi yang alamatnya sudah didaftarkan.
 
 ---
 
-## 15.5 `volatile sig_atomic_t`: kenapa flag-nya tipe aneh
+## 15.5 `volatile sig_atomic_t`
 
-Perhatikan deklarasi `volatile sig_atomic_t berhenti`. Kenapa bukan `int` biasa? Jawabannya ada pada dua bagian tipe tersebut.
+Flag yang dibaca oleh kode utama dan ditulis oleh signal handler sebaiknya memakai tipe `volatile sig_atomic_t`.
 
-- **`volatile`** — memberitahu compiler bahwa variabel ini bisa berubah di luar alur normal program, yaitu oleh handler. Karena itu, compiler tidak boleh menganggap nilainya selalu sama hanya karena tidak terlihat berubah di loop utama. Tanpa `volatile`, compiler mungkin melihat loop `while (!berhenti)` di mana `berhenti` "tidak pernah diubah di dalam loop", lalu mengoptimasinya menjadi loop tanpa akhir (`while(true)`). Akibatnya, handler-mu tidak akan pernah menghentikan loop. `volatile` mencegah optimasi yang salah ini.
+`volatile` memberi tahu compiler bahwa nilai variabel dapat berubah di luar alur normal program. Tanpa `volatile`, compiler dapat melakukan optimasi yang menganggap nilai flag tidak berubah di dalam loop, sehingga perubahan dari handler tidak terlihat seperti yang diharapkan.
 
-- **`sig_atomic_t`** — tipe yang dijamin bisa dibaca dan ditulis dalam **satu operasi atomik**, sehingga tidak terinterupsi di tengah operasi. Karena signal bisa tiba kapan saja, penulisan variabel multi-byte berisiko terlihat setengah-jadi kalau terpotong di tengah. `sig_atomic_t` menjamin operasi baca/tulisnya utuh untuk kebutuhan flag sederhana seperti ini.
+`sig_atomic_t` adalah tipe yang dijamin dapat dibaca dan ditulis secara atomik untuk kebutuhan signal handler. Karena signal dapat tiba kapan saja, program perlu memakai tipe yang aman untuk operasi sederhana seperti mengubah flag.
 
-Gabungan keduanya penting. `volatile` berbicara ke compiler tentang optimasi, sedangkan `sig_atomic_t` berbicara tentang operasi baca/tulis yang aman untuk flag kecil. Keduanya tidak membuat semua operasi di handler menjadi aman; mereka hanya cukup untuk pola sederhana "handler set flag, loop utama membaca flag".
-
-Detail ini menunjukkan kenapa sifat **asinkron** signal membuat signal handler perlu diperlakukan secara khusus.
-
----
-
-## 15.6 Async-safety: kenapa signal handler harus dibatasi
-
-Ini bagian yang perlu dibaca dengan cermat. Karena signal bisa tiba **kapan saja**, signal juga bisa datang saat program sedang berada di tengah-tengah `malloc`, `printf`, atau fungsi library lain. Akibatnya, signal handler tidak boleh diperlakukan seperti fungsi biasa.
-
-Bayangkan skenario ini. Program utamamu sedang berada di tengah-tengah `malloc`, yang sedang memanipulasi struktur internal heap (Bab 9). Tiba-tiba signal tiba, dan handler-mu juga memanggil `malloc`. Sekarang `malloc` dipanggil ulang **saat pemanggilan sebelumnya belum selesai**. Struktur internal heap bisa berada dalam keadaan sementara yang belum konsisten. Hasilnya bisa berupa crash atau korupsi. Ini disebut masalah **reentrancy**.
-
-> **Aturan utama signal handler adalah melakukan sesedikit mungkin.** Idealnya handler hanya men-set flag `volatile sig_atomic_t` seperti contoh di atas, atau menulis satu byte ke pipe. Pekerjaan sebenarnya dilakukan oleh loop utama setelah ia melihat flag berubah.
-
-Fungsi yang **aman** dipanggil dari signal handler disebut **async-signal-safe**. Daftarnya pendek dan spesifik, misalnya `write`, `_exit`, dan `kill`. Fungsi yang **tidak aman** justru mencakup banyak fungsi yang sering dipakai sehari-hari.
-
-- **`printf` tidak aman** karena memakai buffer dan lock internal. Kalau dipanggil dari handler saat program utama sedang berada di tengah `printf` lain, hasilnya bisa deadlock atau korupsi state internal. Contoh di Bagian 15.4 memakai `printf` di `main`, bukan di handler, sehingga bagian itu aman. Yang perlu dihindari adalah `printf` **di dalam handler**. Kalau butuh output dari handler, pakai `write(1, "pesan\n", 6)` yang async-signal-safe.
-- **`malloc`/`free` tidak aman** karena menyentuh struktur internal heap dan rentan terhadap masalah reentrancy.
-- Banyak fungsi stdio & library lain juga tidak aman.
-
-Cara aman berpikir tentang signal handler adalah menganggapnya sebagai interupsi singkat, bukan tempat untuk mengerjakan logika utama. Handler cukup meninggalkan tanda yang aman, misalnya flag, lalu segera keluar. Loop utama yang berjalan dalam konteks normal membaca tanda itu dan mengerjakan cleanup, logging, atau perubahan state yang lebih kompleks.
-
-Inilah kenapa pola "handler hanya set flag, main loop yang bekerja" menjadi standar. Pola ini mengubah masalah asinkron yang berbahaya menjadi pengecekan sinkron yang aman.
-
----
-
-## 15.7 `SIGCHLD`: menutup lingkaran zombie (Bab 14)
-
-Ingat masalah zombie di Bab 14. Parent harus `wait` child, tetapi kalau parent sedang sibuk mengerjakan hal lain, ia tidak selalu bisa berhenti dan memblokir di `wait`. Signal memberi mekanisme untuk menangani kasus ini.
-
-Saat child selesai, kernel mengirim **`SIGCHLD`** ke parent. Parent bisa memasang handler untuk `SIGCHLD` yang memanggil `waitpid` untuk "memanen" child dan mencegah zombie, tanpa harus memblokir di `wait`.
+Pemakaian yang disarankan adalah menulis nilai sederhana di handler, lalu membiarkan loop utama melakukan pekerjaan yang lebih kompleks.
 
 ```c
-#include <sys/wait.h>
-void sigchld_handler(int signo) {
-    // panen semua child yang sudah selesai, tanpa blocking
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;   // (waitpid & write async-signal-safe; ini idiom umum & diterima)
+volatile sig_atomic_t berhenti = 0;
+
+void handler(int signo) {
+    (void)signo;
+    berhenti = 1;
 }
 ```
 
-`WNOHANG` membuat `waitpid` tidak memblokir. Kalau tidak ada child yang siap dipanen, `waitpid` langsung return. Loop dipakai karena beberapa child bisa selesai hampir bersamaan, dan satu signal `SIGCHLD` tidak selalu berarti hanya satu child yang selesai. Handler perlu memanen semua child yang sudah siap agar tidak ada zombie yang tertinggal.
+---
 
-Ini pola standar di server yang mem-`fork` banyak worker. Parent tetap melayani pekerjaan utama, sementara `SIGCHLD` handler membereskan child yang selesai di latar belakang. Bagian ini menutup lingkaran dengan Bab 14.
+## 15.6 Async-signal-safety
+
+Signal handler berjalan dalam konteks yang terbatas. Karena signal dapat tiba ketika program sedang menjalankan fungsi pustaka, handler tidak boleh memanggil sembarang fungsi.
+
+Masalah utamanya adalah reentrancy. Jika program utama sedang berada di dalam `malloc`, lalu signal datang dan handler juga memanggil `malloc`, fungsi `malloc` dapat dipanggil ulang saat struktur internalnya belum selesai diperbarui. Hal yang sama dapat terjadi pada fungsi yang memakai lock, buffer internal, atau state global.
+
+Fungsi yang aman dipanggil dari signal handler disebut async-signal-safe. Daftar fungsi yang aman relatif terbatas. Contoh fungsi yang umum dipakai adalah `write`, `_exit`, dan `kill`.
+
+Fungsi berikut tidak aman dipanggil dari handler.
+
+- `printf`
+- `fprintf`
+- `malloc`
+- `free`
+- Banyak fungsi stdio dan fungsi pustaka lain
+
+Jika handler perlu memberi tanda ke program utama, cukup ubah flag bertipe `volatile sig_atomic_t`. Jika benar-benar perlu menulis pesan, gunakan `write` dengan buffer statis.
+
+```c
+#include <signal.h>
+#include <unistd.h>
+
+void handler(int signo) {
+    (void)signo;
+    write(STDOUT_FILENO, "signal diterima\n", 16);
+}
+```
+
+Pola yang paling aman adalah membuat handler sesingkat mungkin. Handler memberi tanda, lalu kode utama yang melakukan cleanup, logging, alokasi memori, penutupan file, dan pekerjaan lain yang tidak aman dilakukan di handler.
 
 ---
 
-## 15.8 Rangkuman model mental
+## 15.7 `SIGCHLD` dan Child Process
 
-1. **Signal** adalah notifikasi **asinkron** ke proses. Ia berupa angka kecil bernama dan bisa menginterupsi alur normal kapan saja, bahkan di tengah satu baris kode.
-2. Proses punya tiga reaksi terhadap signal: mengikuti **default action**, mengabaikan signal dengan **ignore**, atau menangkapnya dengan **signal handler** buatan sendiri.
-3. Signal penting yang perlu dikenali adalah `SIGINT` (Ctrl+C), `SIGTERM` (permintaan berhenti yang sopan), `SIGKILL` (`-9`, tidak bisa ditangkap), `SIGSEGV` (akses memori ilegal, sehingga "segfault" adalah signal), dan `SIGCHLD` (child selesai). `SIGKILL` dan `SIGSTOP` sengaja tidak bisa di-handle.
-4. Signal bisa dikirim dari terminal dengan `kill` atau shortcut seperti Ctrl+C, dan dari program dengan `kill()` atau `raise()`. Untuk menghentikan proses dengan rapi, pakai `SIGTERM` sebelum memakai `SIGKILL`.
-5. **Signal handler** adalah callback yang didaftarkan melalui `sigaction`, memakai konsep function pointer dari Bab 7. Kegunaan utamanya adalah *graceful shutdown*, yaitu memberi program kesempatan cleanup sebelum berhenti.
-6. Karena signal asinkron, handler harus mengikuti aturan **async-signal-safety**. Lakukan sesedikit mungkin, idealnya hanya set flag `volatile sig_atomic_t`. `printf` dan `malloc` tidak aman di handler; pakai `write` kalau benar-benar perlu output. Pekerjaan sebenarnya dikerjakan oleh loop utama.
-7. **`SIGCHLD` + `waitpid(WNOHANG)`** adalah pola untuk memanen child yang sudah selesai tanpa membuat parent memblokir terus. Pola ini mencegah zombie dan menutup pembahasan Bab 14.
+Bab 14 menjelaskan bahwa parent perlu memanggil `wait` atau `waitpid` untuk mengambil status child. Jika tidak, child yang sudah selesai dapat menjadi zombie process.
 
----
+Kernel mengirim `SIGCHLD` ke parent ketika child selesai. Parent dapat memasang handler untuk signal ini agar child yang selesai dapat segera diambil statusnya tanpa membuat parent berhenti menunggu secara blocking.
 
-## 15.9 Latihan & Pertanyaan Refleksi
+```c
+#include <signal.h>
+#include <sys/wait.h>
 
-**Latihan praktik:**
+void sigchld_handler(int signo) {
+    (void)signo;
 
-1. Tulis program loop tanpa akhir yang menangkap `SIGINT` (Ctrl+C) dengan handler yang men-set flag `volatile sig_atomic_t`, lalu keluar rapi sambil mencetak pesan. Tekan Ctrl+C dan amati ia tidak langsung mati.
-2. Buktikan `SIGKILL` tidak bisa ditangkap: coba pasang handler untuk `SIGKILL` (bukan `SIGINT`). Jalankan, lalu dari terminal lain `kill -9 <pid>`. Apakah handler-mu jalan? Kenapa tidak?
-3. Hubungkan segfault dengan signal: tulis program yang dereference NULL untuk memicu `SIGSEGV`. Lalu pasang handler untuk `SIGSEGV` yang mencetak (pakai `write`!) "tertangkap" lalu `_exit`. Apa yang terjadi?
-4. Demonstrasikan kenapa `volatile` penting: tulis loop `while (!berhenti)` dengan `berhenti` sebagai `int` biasa (tanpa `volatile`), compile dengan `-O2`, dan lihat apakah Ctrl+C bisa menghentikannya. Lalu tambahkan `volatile` — ada bedanya?
-5. Sengaja langgar async-safety: panggil `printf` di dalam signal handler dan kirim banyak signal cepat (atau panggil `malloc` di handler). Apakah kamu bisa membuatnya berperilaku aneh/crash? (Mungkin tidak selalu terlihat — justru itu bahayanya.)
-6. Tulis handler yang aman menggunakan `write(STDOUT_FILENO, "ditangkap\n", 10)` alih-alih `printf`. Bandingkan.
-7. (Lanjutan) Gabungkan dengan Bab 14: program yang mem-`fork` beberapa child, dan pasang handler `SIGCHLD` dengan `waitpid(-1, NULL, WNOHANG)` untuk memanen mereka. Buktikan tak ada zombie dengan `ps`.
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+    }
+}
+```
 
-**Pertanyaan refleksi:**
+`waitpid` dengan `WNOHANG` tidak memblokir jika belum ada child yang selesai. Loop dipakai karena satu signal `SIGCHLD` dapat mewakili lebih dari satu child yang selesai dalam waktu berdekatan.
 
-1. Apa arti "signal itu asinkron", dan kenapa sifat ini yang membuat signal handler rumit?
-2. Apa tiga cara proses bereaksi terhadap signal? Beri contoh kapan kamu memilih masing-masing.
-3. Kenapa `SIGKILL` dan `SIGSTOP` sengaja tidak bisa ditangkap? Apa implikasinya saat kamu ingin menghentikan proses dengan rapi vs paksa?
-4. "Segmentation fault" ternyata adalah signal apa, dan siapa yang mengirimnya? Jelaskan rantai kejadiannya dari dereference NULL.
-5. Kenapa `volatile sig_atomic_t` dipakai untuk flag signal, bukan `int` biasa? Apa peran masing-masing kata kunci?
-6. Apa itu async-signal-safety? Kenapa `printf` dan `malloc` tidak aman dipanggil di handler? Apa pola yang aman?
-7. Bagaimana `SIGCHLD` menyelesaikan masalah zombie dari Bab 14 tanpa memaksa parent berhenti untuk `wait`?
+Pola ini sering dipakai pada server yang membuat banyak child process. Parent tetap dapat melanjutkan pekerjaan utamanya, sementara child yang selesai tetap diambil statusnya agar tidak menjadi zombie.
+
+Dalam kode produksi, handler `SIGCHLD` tetap perlu ditulis hati-hati. Periksa error dari `waitpid` jika dibutuhkan, simpan `errno` jika perlu, dan hindari operasi yang tidak async-signal-safe.
 
 ---
 
-Signal adalah bentuk komunikasi antar proses yang sangat sederhana. Ia hanya memberi notifikasi, tanpa membawa data yang lebih lengkap. Namun, proses sering perlu benar-benar **bertukar data**, misalnya mengirim aliran byte atau berbagi memori. Karena tiap proses memiliki memori terisolasi (Bab 14), kebutuhan ini memerlukan mekanisme khusus. Di **Bab 16**, kita masuk ke **Inter-Process Communication (IPC)**. Kita akan membahas **pipe** yang menyambung output satu proses ke input proses lain seperti di balik `|` di shell, lalu FIFO dan shared memory.
+## 15.8 Rangkuman Model Mental
+
+1. Signal adalah notifikasi asinkron ke proses.
+2. Signal dapat berasal dari kernel, terminal, atau proses lain.
+3. Proses dapat mengikuti aksi bawaan, mengabaikan signal tertentu, atau menangkap signal dengan handler.
+4. `SIGINT` biasanya berasal dari Ctrl+C.
+5. `SIGTERM` adalah permintaan penghentian yang dapat ditangani.
+6. `SIGKILL` dan `SIGSTOP` tidak dapat ditangkap atau diabaikan.
+7. `SIGSEGV` muncul ketika proses melakukan akses memori ilegal.
+8. Signal dapat dikirim dengan perintah `kill`, fungsi `kill`, atau fungsi `raise`.
+9. `sigaction` adalah cara yang disarankan untuk memasang signal handler.
+10. Handler sebaiknya hanya melakukan pekerjaan minimal seperti mengubah flag `volatile sig_atomic_t`.
+11. `printf`, `malloc`, dan banyak fungsi pustaka lain tidak aman dipanggil dari handler.
+12. `SIGCHLD` dapat dipakai bersama `waitpid(WNOHANG)` untuk mengambil status child tanpa blocking.
+
+---
+
+## 15.9 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Tulis program loop yang menangkap `SIGINT` dengan `sigaction`, mengubah flag `volatile sig_atomic_t`, lalu keluar dengan rapi dari loop utama.
+2. Coba pasang handler untuk `SIGKILL`, lalu kirim `kill -9 <pid>` dari terminal lain. Amati bahwa handler tidak berjalan.
+3. Tulis program yang melakukan dereference pointer `NULL` untuk memicu `SIGSEGV`. Setelah itu, pasang handler sederhana yang memakai `write` dan `_exit`.
+4. Bandingkan flag bertipe `int` biasa dengan `volatile sig_atomic_t` pada program loop yang dikompilasi dengan optimasi.
+5. Buat contoh handler yang memakai `write` untuk menulis pesan singkat ketika signal diterima.
+6. Buat program yang memanggil `fork` beberapa kali, lalu pasang handler `SIGCHLD` dengan `waitpid(-1, NULL, WNOHANG)` untuk mencegah zombie.
+7. Gunakan `ps` untuk memeriksa apakah child yang selesai masih muncul sebagai `<defunct>`.
+
+### Pertanyaan Refleksi
+
+1. Apa arti asinkron pada signal.
+2. Mengapa sifat asinkron membuat signal handler harus ditulis sangat hati-hati.
+3. Apa perbedaan `SIGTERM` dan `SIGKILL`.
+4. Mengapa `SIGKILL` dan `SIGSTOP` tidak dapat ditangkap.
+5. Bagaimana akses memori ilegal dapat berubah menjadi `SIGSEGV`.
+6. Mengapa `volatile sig_atomic_t` lebih tepat daripada `int` biasa untuk flag handler.
+7. Apa yang dimaksud async-signal-safe.
+8. Mengapa `printf` dan `malloc` tidak aman dipanggil dari signal handler.
+9. Bagaimana `SIGCHLD` membantu parent mencegah zombie process.
+
+---
+
+Signal memberi proses cara menerima pemberitahuan asinkron. Bab 16 akan membahas komunikasi antar proses yang membawa data secara lebih eksplisit, termasuk pipe, FIFO, dan shared memory.
+

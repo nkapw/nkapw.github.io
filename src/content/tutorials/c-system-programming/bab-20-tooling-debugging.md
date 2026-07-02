@@ -1,284 +1,315 @@
 ---
-title: "Bab 20 — Tooling: Debugging & Analisis"
-description: "Sepanjang buku ini kita beberapa kali menyebut gdb, valgrind, AddressSanitizer, strace, dan objdump. Sekarang kita kumpulkan dalam satu bab. Tooling penting di C..."
-tags: [c, system-programming]
+title: "Bab 20 - Tooling, Debugging, dan Analisis"
+description: "Dalam pemrograman C, tool debugging dan analisis sangat penting karena bahasa C memberi kontrol besar sekaligus sedikit perlindungan runtime. Bug seperti akses memori..."
+tags: [c, systems-programming]
 order: 20
-updated: 2026-06-20
+updated: 2026-07-02
+---
+Dalam pemrograman C, tool debugging dan analisis sangat penting karena bahasa C memberi kontrol besar sekaligus sedikit perlindungan runtime. Bug seperti akses memori tidak valid, memory leak, undefined behavior, dan race condition sering tidak langsung terlihat dari kode sumber.
+
+Bab ini merangkum tool yang sudah beberapa kali disebut pada bab sebelumnya, seperti `gdb`, `valgrind`, sanitizer, `strace`, `ltrace`, `objdump`, dan `nm`. Fokusnya adalah memahami tool mana yang tepat untuk jenis masalah tertentu dan bagaimana memulai penggunaannya.
+
+Bab ini bukan referensi lengkap untuk setiap tool. Tujuannya adalah memberi alur kerja praktis yang dapat dipakai saat menulis dan men-debug program C.
+
 ---
 
-> "Saat program C crash atau menghasilkan data yang salah, menebak biasanya tidak cukup. Tool seperti `gdb`, sanitizer, `valgrind`, dan `strace` membantu melihat apa yang terjadi di dalam program dan di batas antara program dengan sistem."
+## 20.1 Kompilasi untuk Debugging
 
-Sepanjang buku ini kita beberapa kali menyebut `gdb`, `valgrind`, AddressSanitizer, `strace`, dan `objdump`. Sekarang kita kumpulkan dalam satu bab. Tooling penting di C karena, seperti kita tekankan sejak Bab 1, **C tidak banyak melindungimu**. Tidak ada exception yang otomatis menunjuk baris error, tidak ada garbage collector, dan banyak bug memori baru terlihat setelah efeknya menyebar. Data bisa korup perlahan, crash bisa muncul jauh dari penyebabnya, dan perilaku program bisa berubah-ubah.
+Sebelum melakukan debugging, program sebaiknya dikompilasi dengan flag yang tepat.
 
-Bab ini bukan referensi lengkap untuk tiap tool. Fokusnya adalah peta praktis: tool mana cocok untuk gejala apa, dan contoh minimal untuk mulai memakainya.
-
----
-
-## 20.1 Persiapan: compile untuk debugging
-
-Sebelum tool debugging benar-benar berguna, biasakan compile dengan flag yang tepat (ingat Bab 1 dan 10):
-
-```bash
+```sh
 gcc -Wall -Wextra -g -O0 program.c -o program
 ```
 
-- **`-Wall -Wextra`** menyalakan warning. Warning adalah lapisan debugging pertama dan murah. Banyak bug seperti signed/unsigned mismatch, uninitialized variable, dan format mismatch bisa terlihat di sini sebelum program berjalan. Untuk latihan dan development, perlakukan warning sebagai error.
-- **`-g`** menyertakan **debug info** seperti nama variabel, nomor baris, dan tipe. Tanpa ini, `gdb` hanya menampilkan alamat mentah, bukan kode sumbermu. Flag ini penting untuk debugging.
-- **`-O0`** mematikan optimasi. Optimasi compiler bisa menyusun ulang atau menghapus kode, sehingga debugging membingungkan karena eksekusi tampak "loncat-loncat" antar baris. Saat debug, pakai `-O0`.
+Flag tersebut memiliki fungsi berikut.
 
-Pelajaran praktisnya: **debugging dimulai dari pencegahan.** Warning yang dinyalakan dan sanitizer (Section 20.4) sering menangkap bug sebelum kamu perlu masuk ke `gdb`.
+- **`-Wall -Wextra`** mengaktifkan banyak warning penting. Warning sering menunjukkan bug sejak tahap kompilasi, misalnya variabel belum diinisialisasi, format `printf` tidak cocok, atau konversi tipe yang berisiko.
+- **`-g`** menyertakan debug information seperti nama variabel, nomor baris, dan tipe data. Informasi ini diperlukan agar `gdb` dapat menampilkan kode sumber dan variabel secara bermakna.
+- **`-O0`** menonaktifkan optimasi. Saat optimasi aktif, compiler dapat menyusun ulang atau menghapus bagian kode, sehingga alur debugging menjadi lebih sulit diikuti.
+
+Untuk proses pengembangan, warning sebaiknya diperlakukan sebagai error. Banyak masalah lebih mudah diperbaiki ketika masih berupa warning compiler daripada setelah muncul sebagai crash atau korupsi data.
 
 ---
 
-## 20.2 `gdb`: debugger — melihat program saat berjalan
+## 20.2 Debugging dengan `gdb`
 
-**`gdb`** (GNU Debugger) membiarkanmu menjeda program, memeriksa nilai variabel, melangkah baris demi baris, dan melihat alur eksekusi secara langsung. Ini bukan pengganti total untuk `printf`, tetapi memberi kontrol yang jauh lebih besar saat bug tidak jelas.
+`gdb` adalah debugger yang memungkinkan program dijalankan secara terkendali. Dengan `gdb`, programmer dapat memasang breakpoint, menjalankan program langkah demi langkah, memeriksa nilai variabel, dan melihat call stack saat crash.
 
-```bash
+```sh
 gdb ./program
 ```
 
-Perintah esensial di dalam gdb:
+Perintah dasar yang sering dipakai di dalam `gdb` adalah sebagai berikut.
 
 | Perintah | Singkatan | Fungsi |
 |----------|-----------|--------|
-| `run [args]` | `r` | jalankan program |
-| `break main` / `break file.c:42` | `b` | pasang breakpoint (titik jeda) |
-| `next` | `n` | eksekusi satu baris (lewati pemanggilan fungsi) |
-| `step` | `s` | eksekusi satu baris (masuk ke fungsi) |
-| `continue` | `c` | lanjut sampai breakpoint berikutnya |
-| `print x` | `p x` | tampilkan nilai variabel/ekspresi |
-| `backtrace` | `bt` | tampilkan **call stack** (rantai pemanggilan fungsi) |
-| `info locals` | | tampilkan semua variabel lokal |
-| `quit` | `q` | keluar |
+| `run [args]` | `r` | Menjalankan program |
+| `break main` | `b main` | Memasang breakpoint di fungsi `main` |
+| `break file.c 42` | | Memasang breakpoint pada baris tertentu |
+| `next` | `n` | Menjalankan satu baris tanpa masuk ke fungsi |
+| `step` | `s` | Menjalankan satu baris dan masuk ke fungsi |
+| `continue` | `c` | Melanjutkan eksekusi sampai breakpoint berikutnya |
+| `print x` | `p x` | Menampilkan nilai variabel atau ekspresi |
+| `backtrace` | `bt` | Menampilkan call stack |
+| `info locals` | | Menampilkan variabel lokal pada frame saat ini |
+| `quit` | `q` | Keluar dari `gdb` |
 
-### Use case 1: membedah crash (segfault)
+### Menganalisis Crash
 
-Ini skenario paling umum. Program crash dengan "Segmentation fault" (ingat Bab 6 dan 15; itu `SIGSEGV`). Dengan gdb, kamu bisa mencari **baris mana** yang crash dan nilai apa yang menyebabkannya.
+Saat program mengalami segmentation fault, `gdb` dapat menunjukkan lokasi crash dan kondisi call stack.
 
-```bash
+```text
 gdb ./program
 (gdb) run
-# ... program crash ...
 Program received signal SIGSEGV, Segmentation fault.
-0x... in proses () at program.c:15
-15          *p = 42;            # <- gdb menunjuk baris crash!
+0x... in proses () at program.c 15
+15          *p = 42;
 (gdb) print p
-$1 = (int *) 0x0                # <- p adalah NULL! itu penyebabnya
+$1 = (int *) 0x0
 (gdb) backtrace
-#0  proses () at program.c:15
-#1  main () at program.c:8      # <- dipanggil dari main baris 8
+#0  proses () at program.c 15
+#1  main () at program.c 8
 ```
 
-Dalam tiga perintah, kamu tahu crash terjadi di baris 15 karena `p` adalah `NULL`, dan pemanggilnya adalah `main` baris 8. **`backtrace` adalah salah satu perintah gdb paling penting**: ia menampilkan call stack (ingat stack frame Bab 4) dan menunjukkan rantai "siapa memanggil siapa" sampai ke titik crash.
+Informasi di atas menunjukkan bahwa crash terjadi pada `program.c` baris 15 karena `p` bernilai `NULL`. Perintah `backtrace` menunjukkan rantai pemanggilan fungsi sampai titik crash.
 
-### Use case 2: melihat stack frame (menghidupkan Bab 4)
+### Melihat Stack Frame
 
-```bash
+`gdb` juga dapat digunakan untuk melihat stack frame pada pemanggilan fungsi rekursif.
+
+```text
 (gdb) break faktorial
 (gdb) run
-(gdb) backtrace      # saat rekursi dalam, lihat tumpukan frame menumpuk!
-#0  faktorial (n=1) at f.c:4
-#1  faktorial (n=2) at f.c:6
-#2  faktorial (n=3) at f.c:6
-#3  faktorial (n=4) at f.c:6
-#4  main () at f.c:11
+(gdb) backtrace
+#0  faktorial (n=1) at f.c 4
+#1  faktorial (n=2) at f.c 6
+#2  faktorial (n=3) at f.c 6
+#3  faktorial (n=4) at f.c 6
+#4  main () at f.c 11
 ```
 
-Inilah stack frame dari Bab 4 dalam bentuk yang bisa diperiksa langsung. Tiap baris adalah satu frame, dengan nilai `n` masing-masing. Ini menunjukkan bahwa tiap pemanggilan rekursif punya konteks terpisah.
+Setiap baris menunjukkan satu stack frame. Ini membantu memahami hubungan antara pemanggilan fungsi, variabel lokal, dan call stack.
 
-> gdb juga bisa membaca **core dump**, yaitu snapshot memori yang dibuat saat crash (ingat Bab 15: `SIGSEGV` dapat menghasilkan core dump). `gdb ./program core` membantumu menganalisis crash setelah kejadian, bahkan tanpa menjalankan ulang program.
+`gdb` juga dapat membaca core dump. Jika sistem menghasilkan file core saat program crash, perintah seperti `gdb ./program core` dapat digunakan untuk menganalisis kondisi program setelah crash terjadi.
 
 ---
 
-## 20.3 `valgrind`: detektif memori
+## 20.3 Analisis Memori dengan `valgrind`
 
-**`valgrind`** membantu menemukan masalah memori dari Bab 9, seperti leak, use-after-free, dan double free, serta jebakan Bab 5 seperti out-of-bounds. Ia menjalankan program di atas lapisan instrumentasi yang mengawasi **setiap** akses memori.
+`valgrind` menjalankan program dengan pemantauan memori. Tool ini dapat mendeteksi memory leak, use-after-free, double free, akses di luar batas, dan pembacaan memori yang belum diinisialisasi.
 
-```bash
+```sh
 valgrind ./program
-valgrind --leak-check=full ./program      # detail kebocoran
+valgrind --leak-check=full ./program
 ```
 
-### Mendeteksi memory leak (Bab 9)
+Contoh memory leak.
 
 ```c
 int *p = malloc(100);
-// lupa free(p)
 ```
 
-```bash
-valgrind --leak-check=full ./program
-# ...
-# LEAK SUMMARY:
-#    definitely lost: 100 bytes in 1 blocks
-#    at malloc (...)
-#    by main (program.c:5)        <- valgrind menunjuk baris malloc yang bocor!
+Jika `p` tidak pernah dilepas dengan `free`, `valgrind` dapat menampilkan laporan seperti berikut.
+
+```text
+LEAK SUMMARY
+definitely lost 100 bytes in 1 blocks
+at malloc (...)
+by main (program.c 5)
 ```
 
-valgrind menunjukkan **baris tempat memori yang bocor dialokasikan**. Ini alasan di Bab 9 kita berulang kali memakai valgrind saat membahas manajemen memori manual.
-
-### Mendeteksi use-after-free & out-of-bounds
+Contoh use-after-free.
 
 ```c
 int *p = malloc(sizeof(int));
 free(p);
-*p = 5;                  // use-after-free
+*p = 5;
 ```
 
-```bash
-valgrind ./program
-# Invalid write of size 4
-#    at main (program.c:7)        <- baris yang menulis ke memori bebas
-#  Address 0x... is 0 bytes inside a block of size 4 free'd
-#    at free (...)                 <- dan di mana ia di-free
+Laporan `valgrind` dapat menunjukkan lokasi penulisan ke memori yang sudah dilepas dan lokasi saat memori tersebut dilepas.
+
+```text
+Invalid write of size 4
+at main (program.c 7)
+Address 0x... is 0 bytes inside a block of size 4 free'd
+at free (...)
 ```
 
-valgrind menangkap akses ke memori yang sudah di-`free`, akses di luar batas array, membaca memori tak-terinisialisasi (`malloc` yang belum ditulis; Bab 9), dan banyak lagi. Laporannya memberi lokasi yang membantu mengubah bug "kadang crash kadang tidak" menjadi kasus yang bisa ditelusuri.
-
-**Kapan valgrind vs sanitizer?** valgrind tidak perlu compile ulang khusus karena bisa berjalan pada binary biasa, tetapi membuat program **jauh lebih lambat** (10-50x). Sanitizer lebih cepat, tetapi perlu recompile dengan flag khusus. Keduanya saling melengkapi.
+`valgrind` tidak memerlukan kompilasi ulang khusus, tetapi program dapat berjalan jauh lebih lambat. Tool ini tetap sangat berguna untuk menganalisis bug memori yang sulit ditemukan.
 
 ---
 
-## 20.4 Sanitizers: detektor bug bawaan compiler
+## 20.4 Sanitizer dari Compiler
 
-**Sanitizers** adalah instrumentasi yang ditanam compiler ke dalam program untuk mendeteksi bug saat runtime. Kamu cukup menambahkan flag saat compile. Sanitizer biasanya lebih cepat dari valgrind dan sering memberi pesan yang lebih langsung.
+Sanitizer adalah instrumentasi yang ditambahkan compiler ke program untuk mendeteksi bug saat runtime. Sanitizer biasanya lebih cepat daripada `valgrind`, tetapi program perlu dikompilasi ulang dengan flag tertentu.
 
-**AddressSanitizer (ASan)** — mendeteksi bug memori (out-of-bounds, use-after-free, leak):
+**AddressSanitizer** mendeteksi bug memori seperti out-of-bounds, use-after-free, dan leak.
 
-```bash
+```sh
 gcc -fsanitize=address -g program.c -o program
 ./program
-# Langsung crash dengan laporan rinci saat bug terjadi:
-# ==12345==ERROR: AddressSanitizer: heap-buffer-overflow ...
-#    #0 main program.c:7
 ```
 
-**UndefinedBehaviorSanitizer (UBSan)** — mendeteksi **undefined behavior** (ingat Bab 2 dan Bab 21): signed integer overflow, shift berlebihan, dereference misaligned, dll:
+Contoh laporan AddressSanitizer.
 
-```bash
+```text
+ERROR AddressSanitizer heap-buffer-overflow
+#0 main program.c 7
+```
+
+**UndefinedBehaviorSanitizer** mendeteksi beberapa bentuk undefined behavior, seperti signed integer overflow, shift yang tidak valid, dan akses memori misaligned.
+
+```sh
 gcc -fsanitize=undefined -g program.c -o program
 ./program
-# program.c:5:10: runtime error: signed integer overflow: 2147483647 + 1 ...
 ```
 
-**ThreadSanitizer (TSan)** — mendeteksi **race condition** (Bab 17):
+Contoh laporan UndefinedBehaviorSanitizer.
 
-```bash
+```text
+program.c 5 runtime error signed integer overflow
+```
+
+**ThreadSanitizer** mendeteksi race condition pada program multi-thread.
+
+```sh
 gcc -fsanitize=thread -g program.c -o program -pthread
 ```
 
-> Praktik yang sangat berguna saat development: compile dengan `-fsanitize=address,undefined`. Ini menangkap banyak bug memori dan UB secara otomatis, langsung saat terjadi, bukan beberapa baris kemudian. ASan dan TSan tidak bisa dipakai bersamaan; pilih sesuai jenis bug. Untuk build produksi, sanitizer biasanya dimatikan karena ada overhead.
+Pada tahap pengembangan, kombinasi berikut sering efektif untuk program single-thread.
 
-Sanitizer menjadi jaring pengaman praktis untuk bahasa yang tidak banyak melakukan pengecekan runtime secara default.
+```sh
+gcc -Wall -Wextra -g -O0 -fsanitize=address,undefined program.c -o program
+```
+
+AddressSanitizer dan ThreadSanitizer umumnya tidak digunakan bersamaan. Pilih sanitizer sesuai jenis bug yang sedang dicari. Untuk build produksi, sanitizer biasanya dimatikan karena menambah overhead.
 
 ---
 
-## 20.5 `strace` & `ltrace`: mengintip interaksi dengan sistem
+## 20.5 `strace` dan `ltrace`
 
-Tool ini sudah kita kenalkan di Bab 19. **`strace`** menampilkan setiap **syscall**; **`ltrace`** menampilkan setiap pemanggilan **fungsi library**.
+`strace` menampilkan syscall yang dilakukan program, sedangkan `ltrace` menampilkan pemanggilan fungsi library. Keduanya berguna untuk melihat perilaku program dari lapisan yang berbeda.
 
-```bash
-strace ./program          # semua syscall + argumen + return
-strace -c ./program       # ringkasan: hitungan & waktu per syscall
-ltrace ./program          # pemanggilan fungsi library (malloc, printf, dll)
+```sh
+strace ./program
+strace -c ./program
+ltrace ./program
 ```
 
-Kapan dipakai:
+`strace` berguna pada beberapa situasi.
 
-- Program "menggantung" — `strace` menunjukkan syscall mana yang memblokir, misalnya `read` menunggu input atau `accept` menunggu koneksi (Bab 18).
-- Program gagal dengan gejala yang tidak jelas — `strace` menunjukkan syscall yang gagal dan `errno`-nya, misalnya `openat(...) = -1 ENOENT` -> file tidak ada.
-- Memahami program orang lain (atau closed-source) — lihat file apa yang ia buka dan koneksi apa yang ia buat.
+- Program berhenti menunggu tanpa output. `strace` dapat menunjukkan apakah program sedang memblokir pada `read`, `accept`, `wait`, atau syscall lain.
+- Program gagal membuka file atau koneksi. `strace` dapat menunjukkan syscall yang gagal dan kode error seperti `ENOENT`, `EACCES`, atau `ECONNREFUSED`.
+- Program pihak ketiga perlu dianalisis. `strace` dapat menunjukkan file yang dibuka, proses yang dibuat, dan koneksi yang dicoba.
 
-`strace` melihat program dari "luar", yaitu interaksinya dengan kernel. gdb melihat program dari "dalam", yaitu variabel dan alur eksekusinya. Keduanya memberi sudut pandang berbeda yang saling melengkapi.
+`gdb` melihat state internal program seperti variabel dan call stack. `strace` melihat interaksi program dengan kernel. Kedua tool ini saling melengkapi.
 
 ---
 
-## 20.6 `objdump` & `nm`: membongkar binary
+## 20.6 `objdump`, `nm`, `ldd`, dan `file`
 
-Untuk melihat level machine code dan symbol (menutup Bab 1 dan 11), dua tool ini sering dipakai.
+Beberapa tool berguna untuk memeriksa binary, symbol, dan library.
 
-**`objdump -d`** — **disassemble**: menampilkan machine code program sebagai assembly. Ini cara melihat instruksi yang akhirnya dijalankan CPU (ingat Bab 1 dan 3):
+**`objdump -d`** menampilkan disassembly dari executable atau object file.
 
-```bash
-objdump -d program | less
-# main:
-#   push   rbp
-#   mov    rbp, rsp
-#   ...                          <- assembly dari kode-mu (Bab 4!)
+```sh
+objdump -d program
 ```
 
-Berguna untuk memahami apa yang compiler hasilkan, melihat efek optimasi (bandingkan `-O0` vs `-O2`), dan debugging tingkat rendah.
+Outputnya memperlihatkan instruksi assembly yang akan dijalankan CPU. Tool ini berguna untuk memahami hasil kompilasi, efek optimasi, dan debugging tingkat rendah.
 
-**`nm`** — menampilkan daftar **symbol** sebuah object file atau executable (sudah kita pakai di Bab 11):
+**`nm`** menampilkan daftar symbol pada object file atau executable.
 
-```bash
+```sh
 nm program.o
-#   U printf          <- Undefined: butuh dari luar (akan di-link)
-#   T main            <- Text: didefinisikan di sini
 ```
 
-Berguna untuk men-debug masalah linking (`undefined reference`, Bab 11), karena kamu bisa mengecek symbol mana yang ada atau hilang.
+Contoh output.
 
-**`ldd`** (Bab 11) menampilkan daftar shared library yang dibutuhkan executable. **`file`** mengidentifikasi jenis file, misalnya ELF executable atau object file. Tool kecil seperti ini menghubungkan pembahasan Bab 1, 11, dan 19.
+```text
+U printf
+T main
+```
 
----
+Symbol `U printf` berarti `printf` belum didefinisikan di object file tersebut dan harus diselesaikan saat linking. Symbol `T main` berarti `main` berada pada bagian text dan didefinisikan di file tersebut.
 
-## 20.7 Alur debugging yang waras
+**`ldd`** menampilkan shared library yang dibutuhkan executable.
 
-Punya banyak tool tidak cukup kalau tidak ada metode. Berikut alur praktis saat menghadapi bug:
+```sh
+ldd program
+```
 
-1. **Baca pesan compiler.** Nyalakan `-Wall -Wextra`. Banyak bug selesai di sini.
-2. **Reproduksi konsisten.** Bug yang tidak bisa direproduksi sulit diperbaiki dengan andal. Cari input atau kondisi minimal yang memicunya.
-3. **Pakai sanitizer dulu** (`-fsanitize=address,undefined`). Untuk bug memori/UB, ini sering langsung menunjuk akar masalah.
-4. **Crash? Pakai gdb** — `run`, lalu `backtrace` saat crash. Lihat baris dan nilai variabel.
-5. **Bug memori halus / leak? Pakai valgrind.**
-6. **Masalah dengan file/jaringan/menggantung? Pakai strace.**
-7. **Bug logika (bukan crash)? Pakai gdb** dengan breakpoint dan `print`, langkahi kode, lalu periksa nilai di titik-titik penting.
-8. **Uji asumsimu.** Bug sering bersembunyi di tempat yang kamu anggap benar. Verifikasi, jangan hanya mengandalkan dugaan.
+**`file`** menampilkan jenis file, misalnya ELF executable, object file, shared object, atau file teks.
 
-> Debugging bukan menebak; ia **investigasi sistematis**. Tiap tool memberi sudut pandang: gdb (alur dan state internal), valgrind/ASan (memori), strace (interaksi sistem), objdump (machine code). Tujuannya adalah mempersempit masalah secara metodis, bukan mengubah kode acak sambil berharap bug hilang.
+```sh
+file program
+```
 
----
-
-## 20.8 Rangkuman model mental
-
-1. C tidak banyak melindungimu, sehingga tool debugging dan analisis sangat penting.
-2. **Compile untuk debug:** `-Wall -Wextra` (warning = lapisan pertama), `-g` (debug info untuk gdb), `-O0` (tanpa optimasi saat debug).
-3. **`gdb`** — debugger: jeda, periksa variabel, langkahi baris. **`backtrace`** (call stack — Bab 4) untuk crash; `print` untuk nilai; bisa baca core dump.
-4. **`valgrind`** — detektif memori: leak, use-after-free, out-of-bounds, uninitialized (Bab 5 & 9), dengan lokasi presisi. Lambat tapi jalan pada binary biasa.
-5. **Sanitizers** (`-fsanitize=address,undefined,thread`) — instrumentasi compiler: bug memori (ASan), undefined behavior (UBSan, Bab 2/21), race (TSan, Bab 17). Sangat berguna saat development.
-6. **`strace`/`ltrace`** — interaksi dengan sistem (syscall/library), untuk hang, gagal misterius, memahami program.
-7. **`objdump -d`** (disassemble -> machine code), **`nm`** (symbol -> debug linking), **`ldd`/`file`**. Menutup Bab 1, 11, 19.
-8. **Alur yang sehat:** warning -> reproduksi -> sanitizer -> gdb/valgrind/strace sesuai gejala. Debugging = investigasi sistematis, bukan menebak.
+Tool ini membantu ketika debugging masalah linking, format binary, atau dependensi runtime.
 
 ---
 
-## 20.9 Latihan & Pertanyaan Refleksi
+## 20.7 Alur Debugging yang Sistematis
 
-**Latihan praktik:**
+Tool yang banyak tidak berguna tanpa alur kerja yang jelas. Berikut alur debugging yang praktis untuk program C.
 
-1. Tulis program yang dereference NULL (crash). Compile dengan `-g`, jalankan di `gdb`: `run`, lalu `backtrace` dan `print p`. Temukan baris & penyebab crash. Bandingkan dengan menebak tanpa gdb.
-2. Hidupkan kembali Bab 4: jalankan fungsi `faktorial` rekursif di gdb, pasang `break faktorial`, dan `backtrace` di kedalaman rekursi. Lihat stack frame menumpuk dengan nilai `n` masing-masing.
-3. Buat memory leak (malloc tanpa free) dan jalankan `valgrind --leak-check=full`. Temukan baris yang bocor. Lalu tambahkan `free` dan konfirmasi "no leaks".
-4. Buat use-after-free, jalankan dengan valgrind DAN dengan `-fsanitize=address`. Bandingkan kedua laporan — mana lebih jelas/cepat menurutmu?
-5. Buat signed integer overflow (Bab 2) dan jalankan dengan `-fsanitize=undefined`. Apakah UBSan menangkapnya? Apa pesannya?
-6. Buat race condition dari Bab 17 dan jalankan dengan `-fsanitize=thread`. Baca laporan race-nya.
-7. `strace` sebuah program yang membuka file tak ada. Temukan syscall yang gagal & `errno`-nya. Lalu `strace -c` program yang `printf` banyak — berapa syscall `write`?
-8. `objdump -d` salah satu programmu. Temukan fungsi `main` dan kenali prolog (`push rbp`) & epilog (Bab 4). Bandingkan disassembly `-O0` vs `-O2`.
+1. Baca warning compiler dan perbaiki terlebih dahulu.
+2. Pastikan bug dapat direproduksi dengan input atau kondisi yang jelas.
+3. Gunakan sanitizer untuk mencari bug memori dan undefined behavior.
+4. Jika program crash, jalankan dengan `gdb` dan gunakan `backtrace`.
+5. Jika ada dugaan memory leak atau akses memori ilegal, jalankan `valgrind`.
+6. Jika masalah berkaitan dengan file, proses, jaringan, atau program yang berhenti menunggu, gunakan `strace`.
+7. Jika masalahnya adalah bug logika, gunakan breakpoint, `print`, dan eksekusi langkah demi langkah di `gdb`.
+8. Verifikasi asumsi satu per satu dengan data dari tool, bukan dengan menebak.
 
-**Pertanyaan refleksi:**
-
-1. Kenapa tools sangat penting di C secara khusus (dibanding bahasa dengan exception/GC)?
-2. Apa fungsi `-g`, `-Wall`, dan `-O0` saat debugging? Kenapa optimasi dimatikan?
-3. Apa perintah gdb terpenting saat program crash, dan informasi apa yang ia berikan? Hubungkan dengan Bab 4.
-4. Apa beda valgrind dan AddressSanitizer? Kapan kamu memilih masing-masing?
-5. Sebutkan tiga jenis bug yang ditangkap sanitizer, dan kaitkan tiap satu dengan bab yang membahas bug itu.
-6. Kapan `strace` lebih berguna daripada `gdb`? Berikan dua skenario.
-7. Jelaskan alur debugging sistematis. Kenapa "menebak & ubah kode acak" itu pendekatan buruk?
+Debugging yang baik adalah proses investigasi yang terukur. Setiap tool memberi sudut pandang berbeda. `gdb` menunjukkan state internal program, `valgrind` dan sanitizer menunjukkan bug memori atau undefined behavior, `strace` menunjukkan interaksi dengan kernel, sedangkan `objdump` dan `nm` membantu memahami binary dan symbol.
 
 ---
 
-Kita sudah punya alat untuk menemukan dan menganalisis bug. Berikutnya, kita membahas satu kategori bug yang sangat penting dalam C: **undefined behavior** dan celah keamanan.
+## 20.8 Rangkuman Model Mental
 
-Di **Bab 21**, kita membahas apa itu UB, kenapa compiler boleh membuat asumsi agresif, bagaimana **buffer overflow** bisa menimpa return address, apa risiko integer overflow, dan bagaimana bug C dapat berubah menjadi celah keamanan serta cara mengurangi risikonya.
+1. C memberi sedikit perlindungan runtime, sehingga tool debugging dan analisis perlu digunakan sejak awal pengembangan.
+2. Kompilasi untuk debugging biasanya memakai `-Wall -Wextra -g -O0`.
+3. `gdb` digunakan untuk breakpoint, inspeksi variabel, eksekusi langkah demi langkah, backtrace, dan core dump.
+4. `valgrind` digunakan untuk mendeteksi memory leak, use-after-free, double free, out-of-bounds, dan memori belum diinisialisasi.
+5. AddressSanitizer mendeteksi banyak bug memori saat runtime.
+6. UndefinedBehaviorSanitizer mendeteksi beberapa bentuk undefined behavior.
+7. ThreadSanitizer mendeteksi race condition.
+8. `strace` menampilkan syscall, sedangkan `ltrace` menampilkan pemanggilan fungsi library.
+9. `objdump`, `nm`, `ldd`, dan `file` membantu menganalisis binary, symbol, dan dependensi.
+10. Alur debugging yang baik dimulai dari warning compiler, reproduksi bug, sanitizer, lalu tool yang sesuai dengan gejala.
+
+---
+
+## 20.9 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Tulis program yang melakukan dereference pointer `NULL`. Kompilasi dengan `-g`, jalankan di `gdb`, lalu gunakan `run`, `backtrace`, dan `print p`.
+2. Jalankan fungsi `faktorial` rekursif di `gdb`. Pasang breakpoint di fungsi tersebut dan gunakan `backtrace` saat rekursi berjalan.
+3. Buat memory leak dengan `malloc` tanpa `free`, lalu jalankan `valgrind --leak-check=full`. Tambahkan `free` dan pastikan laporan leak hilang.
+4. Buat use-after-free, lalu jalankan dengan `valgrind` dan AddressSanitizer. Bandingkan informasi yang diberikan.
+5. Buat signed integer overflow dan jalankan dengan UndefinedBehaviorSanitizer.
+6. Buat race condition dari Bab 17 dan jalankan dengan ThreadSanitizer.
+7. Jalankan `strace` pada program yang membuka file tidak ada. Temukan syscall yang gagal dan kode error yang muncul.
+8. Jalankan `strace -c` pada program yang memanggil `printf` berkali-kali. Periksa jumlah syscall `write`.
+9. Jalankan `objdump -d` pada salah satu program. Temukan fungsi `main` dan amati instruksi assembly yang dihasilkan.
+10. Bandingkan output `objdump -d` dari program yang dikompilasi dengan `-O0` dan `-O2`.
+
+### Pertanyaan Refleksi
+
+1. Mengapa tool debugging dan analisis sangat penting dalam pemrograman C.
+2. Apa fungsi `-g`, `-Wall`, `-Wextra`, dan `-O0`.
+3. Mengapa optimasi biasanya dimatikan saat debugging.
+4. Informasi apa yang diberikan `backtrace` saat program crash.
+5. Apa perbedaan utama antara `valgrind` dan AddressSanitizer.
+6. Jenis bug apa yang dapat dideteksi oleh AddressSanitizer, UndefinedBehaviorSanitizer, dan ThreadSanitizer.
+7. Kapan `strace` lebih berguna daripada `gdb`.
+8. Apa kegunaan `objdump` dan `nm`.
+9. Mengapa reproduksi bug penting sebelum debugging.
+10. Bagaimana alur debugging sistematis membantu menghindari perubahan kode secara acak.
+
+---
+
+Bab ini membahas tool utama untuk menemukan dan menganalisis bug pada program C. Bab berikutnya membahas undefined behavior dan celah keamanan, termasuk buffer overflow, integer overflow, dan prinsip dasar penulisan kode C yang lebih aman.
+

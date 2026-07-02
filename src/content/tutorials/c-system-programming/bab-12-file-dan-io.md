@@ -1,236 +1,217 @@
 ---
-title: "Bab 12 — File & I/O"
-description: "Sampai di sini, program kita masih banyak bekerja di dalam memorinya sendiri: menghitung, mengatur data, dan menyusun kode menjadi executable. Mulai bab ini, program..."
-tags: [c, system-programming]
+title: "Bab 12 - File dan I/O"
+description: "Sampai tahap ini, program yang dibuat terutama bekerja di memori. Program menghitung nilai, mengelola data, dan memanggil fungsi, tetapi belum banyak berinteraksi..."
+tags: [c, systems-programming]
 order: 12
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Sampai tahap ini, program yang dibuat terutama bekerja di memori. Program menghitung nilai, mengelola data, dan memanggil fungsi, tetapi belum banyak berinteraksi dengan sistem di luar prosesnya sendiri. Bab ini membahas cara program C membaca dan menulis file, serta cara konsep file digunakan secara luas pada sistem UNIX dan Linux.
 
-> "Di UNIX, banyak hal diperlakukan seperti file: dokumen di disk, terminal, koneksi jaringan, sampai perangkat hardware. Kunci aksesnya sering berupa satu angka kecil: file descriptor."
-
-Sampai di sini, program kita masih banyak bekerja di dalam memorinya sendiri: menghitung, mengatur data, dan menyusun kode menjadi executable. Mulai bab ini, program mulai **berinteraksi dengan dunia luar**. Program akan membaca file, menulis file, dan berbicara dengan sistem operasi.
-
-Di sistem UNIX, kata "file" punya arti lebih luas daripada dokumen di disk. Terminal, pipe, socket, dan beberapa device juga bisa diakses lewat antarmuka yang mirip file.
-
-Bab ini membahas dua lapis I/O. Lapis pertama adalah **syscall** (`open`/`read`/`write`), yang berbicara langsung ke kernel. Lapis kedua adalah **`stdio`** (`fopen`/`printf`/`FILE*`), yaitu lapisan nyaman dari C standard library di atas syscall. Memahami hubungan keduanya, terutama soal **buffering**, akan menjelaskan banyak perilaku I/O yang sering terasa membingungkan.
+Pembahasan berfokus pada dua lapisan I/O. Lapisan pertama adalah syscall seperti `open`, `read`, `write`, dan `close`, yang berinteraksi langsung dengan kernel. Lapisan kedua adalah `stdio`, seperti `fopen`, `fprintf`, dan `FILE*`, yang disediakan oleh C standard library sebagai antarmuka yang lebih nyaman. Hubungan antara kedua lapisan ini penting, terutama ketika membahas buffering.
 
 ---
 
-## 12.1 Filosofi UNIX: "everything is a file"
+## 12.1 Konsep File pada UNIX
 
-Sebelum masuk ke teknis, pegang satu ide besar:
+Pada UNIX dan Linux, banyak sumber data diperlakukan melalui antarmuka file. File biasa di disk, terminal, pipe, socket, dan beberapa perangkat di `/dev` dapat dibaca atau ditulis dengan pola operasi yang serupa.
 
-> **Di UNIX/Linux, banyak hal yang berbeda diperlakukan dengan antarmuka yang sama — seolah-olah file.** Dokumen di disk adalah file. Terminal/keyboard, layar, koneksi jaringan (socket, Bab 18), pipe antar proses (Bab 16), dan beberapa device hardware (`/dev/...`) juga bisa diperlakukan dengan model yang mirip.
+Gagasan ini membuat program dapat memakai fungsi yang sama untuk berbagai sumber data. Fungsi `read` dapat membaca dari file biasa, input terminal, pipe, atau socket. Fungsi `write` dapat menulis ke file, layar terminal, atau koneksi jaringan. Program tidak selalu perlu mengetahui detail perangkat di baliknya selama antarmuka yang digunakan sama.
 
-Keuntungannya, kamu bisa memakai **fungsi yang sama** (`read`, `write`) untuk membaca dari file, keyboard, pipe, atau koneksi jaringan. Program yang menulis ke "file" tidak harus peduli apakah ujungnya disk, layar, atau socket. Antarmuka seragam seperti ini menjadi salah satu alasan tool UNIX mudah disambung dengan pipe (`|`).
+Desain ini juga menjadi dasar redirection dan pipeline pada shell. Output sebuah program dapat diarahkan ke file atau diteruskan ke program lain tanpa mengubah kode program tersebut.
 
 ---
 
-## 12.2 File descriptor: angka kecil untuk resource
+## 12.2 File Descriptor
 
-Saat program membuka sebuah file, koneksi, atau resource I/O lain, kernel memberinya sebuah **file descriptor (fd)**. Bentuknya **integer kecil non-negatif** yang menjadi pegangan untuk merujuk ke resource itu. Setiap operasi I/O berikutnya memakai fd ini.
+Saat program membuka file, kernel memberikan sebuah **file descriptor** atau **fd**. File descriptor adalah integer non-negatif yang digunakan program untuk merujuk resource I/O tersebut.
 
 ```c
-int fd = open("data.txt", O_RDONLY);   // fd mungkin bernilai 3
-read(fd, buffer, 100);                  // baca lewat fd
-close(fd);                              // tutup, kembalikan fd ke kernel
+int fd = open("data.txt", O_RDONLY);
+read(fd, buffer, 100);
+close(fd);
 ```
 
-### Di balik layar: tabel file descriptor
+Setiap proses memiliki tabel file descriptor sendiri yang dikelola oleh kernel. Nilai fd adalah indeks ke tabel tersebut. Entri tabel menunjuk ke struktur kernel yang menyimpan informasi file, posisi baca atau tulis saat ini, mode akses, dan informasi lain yang diperlukan.
 
-Tiap proses punya **tabel file descriptor** sendiri yang dikelola kernel. fd hanyalah **indeks** ke tabel itu. Entri tabel menunjuk ke struktur kernel yang menyimpan informasi file sebenarnya, seperti lokasi, posisi baca saat ini, mode, dan detail lain.
-
-Karena tabel ini dimiliki per proses, fd bernilai `3` di satu proses tidak harus merujuk ke file yang sama dengan fd `3` di proses lain. Angkanya hanya bermakna di dalam proses yang memegangnya.
-
-```
-Proses-mu                  Kernel
+```text
+Proses                    Kernel
 +------------------+
 | fd table         |
-| 0 -> stdin   ----+----> terminal (input)
-| 1 -> stdout  ----+----> terminal (output)
-| 2 -> stderr  ----+----> terminal (error)
-| 3 -> data.txt ---+----> file di disk (posisi, mode, dll)
+| 0 -> stdin   ----+----> terminal input
+| 1 -> stdout  ----+----> terminal output
+| 2 -> stderr  ----+----> terminal error
+| 3 -> data.txt ---+----> file di disk
 +------------------+
 ```
 
-Cara membacanya sederhana. Program memegang angka fd, sementara kernel menyimpan pemetaan dari angka itu ke resource yang sebenarnya. Untuk operasi berikutnya, program cukup menyerahkan fd tersebut ke `read`, `write`, atau `close`.
+### File Descriptor Standar
 
-### Tiga fd istimewa: 0, 1, 2
+Setiap proses biasanya sudah memiliki tiga fd yang terbuka sejak awal.
 
-Setiap proses, saat lahir, otomatis sudah punya tiga fd terbuka (diwariskan dari shell):
+| fd | Nama | Kegunaan |
+|----|------|----------|
+| 0 | **stdin** | Input standar, biasanya keyboard |
+| 1 | **stdout** | Output normal, biasanya layar |
+| 2 | **stderr** | Pesan error, biasanya layar |
 
-| fd | Nama | Untuk |
-|----|------|-------|
-| 0 | **stdin** (standard input) | input — biasanya keyboard |
-| 1 | **stdout** (standard output) | output normal — biasanya layar |
-| 2 | **stderr** (standard error) | pesan error — biasanya layar |
+Fungsi `printf` menulis ke stdout, sehingga outputnya muncul di layar karena fd 1 sudah tersedia. Shell dapat mengubah tujuan fd tersebut sebelum program dijalankan. Perintah `./program > out.txt` mengarahkan stdout ke file `out.txt`. Perintah `./program 2> error.txt` mengarahkan stderr ke file `error.txt`.
 
-Inilah kenapa `printf`, yang menulis ke stdout/fd 1, langsung muncul di layar tanpa kamu membuka file apa pun. fd 1 sudah terbuka sejak awal.
-
-Mekanisme yang sama dipakai oleh **redirection** shell. Perintah `./program > out.txt` membuat shell mengarahkan fd 1 ke file `out.txt`, bukan ke layar. Pemisahan stdout (1) dan stderr (2) memungkinkan `./program 2> error.txt`: pesan error masuk ke file, sementara output normal tetap ke layar.
-
-> Praktik baik: kirim pesan error dan diagnostik ke **stderr** (`fprintf(stderr, ...)`), bukan stdout. Dengan begitu, error tetap terlihat walaupun output normal di-redirect ke file, dan data output tidak tercampur pesan diagnostik. Kamu sudah melihat pola `fprintf(stderr, ...)` sejak Bab 9.
+Pesan error dan informasi diagnostik sebaiknya ditulis ke stderr dengan `fprintf(stderr, ...)`, bukan ke stdout. Dengan cara ini, output normal tetap dapat diarahkan ke file tanpa tercampur dengan pesan error.
 
 ---
 
-## 12.3 Level rendah: syscall I/O langsung
+## 12.3 I/O Level Rendah dengan Syscall
 
-Mari mulai dari lapisan yang paling dekat ke kernel: syscall `open`, `read`, `write`, dan `close`, yang deklarasinya ada di `<fcntl.h>` dan `<unistd.h>`. Ini cara langsung berbicara dengan kernel.
+Syscall I/O seperti `open`, `read`, `write`, dan `close` berada dekat dengan kernel. Deklarasinya tersedia melalui header seperti `<fcntl.h>` dan `<unistd.h>`.
 
 ```c
-#include <fcntl.h>      // open, O_* flags
-#include <unistd.h>     // read, write, close
-#include <string.h>     // strlen
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdio.h>
 
 int main(void) {
-    // buka file untuk ditulis; buat kalau belum ada; truncate kalau sudah ada
     int fd = open("output.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd == -1) {                          // syscall gagal -> return -1
-        perror("open");                       // cetak pesan error (Bagian 12.6 / Bab 13)
+    if (fd == -1) {
+        perror("open");
         return 1;
     }
 
     const char *pesan = "Halo dari syscall write!\n";
-    ssize_t ditulis = write(fd, pesan, strlen(pesan));   // tulis seluruh isi pesan ke fd
+    ssize_t ditulis = write(fd, pesan, 25);
     if (ditulis == -1) {
         perror("write");
         close(fd);
         return 1;
     }
+
     printf("Berhasil menulis %zd byte\n", ditulis);
 
-    close(fd);                                // tutup, kembalikan fd
+    close(fd);
     return 0;
 }
 ```
 
-Perhatikan poin-poin pentingnya:
+Beberapa hal penting dari contoh tersebut.
 
-- **`open(path, flags, mode)`** mengembalikan fd baru, atau **`-1` kalau gagal**. `flags` digabung dengan OR (ingat bitmask Bab 3): `O_WRONLY` (write-only), `O_CREAT` (buat kalau belum ada), `O_TRUNC` (kosongkan kalau sudah ada). `0644` adalah **permission** file (oktal: rw-r--r--) yang dipakai kalau file baru dibuat.
-- **`write(fd, buf, n)`** menulis sampai `n` byte dari `buf` ke fd. Ia mengembalikan jumlah byte yang **benar-benar** ditulis (`ssize_t`), atau `-1`. Penting: `write` bisa menulis **kurang** dari `n` (partial write), sehingga kode produksi harus mengulang sampai semua data tertulis.
-- **`read(fd, buf, n)`** (tak di contoh ini) membaca sampai `n` byte ke `buf`, mengembalikan jumlah byte terbaca, `0` kalau **end-of-file**, atau `-1` kalau error. `read` juga boleh membaca kurang dari `n` byte walaupun belum error; jumlah yang dikembalikan harus selalu dipakai sebagai fakta, bukan diasumsikan sama dengan ukuran buffer.
-- **`close(fd)`** mengembalikan fd ke kernel. fd itu resource terbatas. Jika program lupa memanggil `close`, fd bisa bocor sebagai **fd leak**, mirip memory leak tetapi untuk handle I/O.
-- **Konvensi error** untuk hampir semua syscall adalah return value **`-1`** saat gagal, dengan detail di `errno` (Bab 13). Selalu cek return value.
+- **`open(path, flags, mode)`** membuka file dan mengembalikan fd baru. Jika gagal, fungsi ini mengembalikan `-1`. `flags` dapat digabung dengan operator OR, misalnya `O_WRONLY`, `O_CREAT`, dan `O_TRUNC`. Nilai `0644` adalah permission file dalam bentuk oktal.
+- **`write(fd, buf, n)`** menulis hingga `n` byte dari `buf` ke fd. Nilai kembaliannya adalah jumlah byte yang benar-benar ditulis, atau `-1` jika gagal. Pada kondisi tertentu, jumlah byte yang ditulis dapat lebih kecil dari `n`, sehingga kode produksi perlu menangani partial write.
+- **`read(fd, buf, n)`** membaca hingga `n` byte ke `buf`. Nilai kembaliannya adalah jumlah byte yang dibaca, `0` saat mencapai akhir file, atau `-1` jika gagal.
+- **`close(fd)`** menutup fd dan mengembalikannya ke kernel. File descriptor adalah resource terbatas, sehingga fd yang tidak lagi dipakai harus ditutup.
+- **Konvensi error syscall** umumnya memakai nilai `-1`. Detail penyebab kegagalan dapat diperiksa melalui `errno`, yang dibahas pada Bab 13.
 
-Partial read dan partial write sering tidak terlihat pada file kecil di disk, sehingga mudah diremehkan. Namun pada pipe, socket, terminal, file besar, atau sistem yang sedang sibuk, operasi I/O bisa menyelesaikan sebagian saja. Itu sebabnya kode level rendah biasanya memakai loop yang terus membaca atau menulis sampai jumlah byte yang diinginkan benar-benar selesai, EOF tercapai, atau error terjadi.
-
-Hal pentingnya, `write` di sini adalah **syscall**. Ia menyeberang ke kernel tiap kali dipanggil (mekanismenya dibahas di Bab 19). Tidak ada buffering dari C standard library. Data yang kamu berikan ke `write` langsung diserahkan ke kernel.
+Pemanggilan `write` pada contoh tersebut langsung menyerahkan data ke kernel. Tidak ada buffering dari C standard library karena program menggunakan syscall secara langsung.
 
 ---
 
-## 12.4 Level tinggi: `stdio` dan `FILE*`
+## 12.4 I/O Level Tinggi dengan `stdio`
 
-Menulis dengan syscall langsung cukup repot. Kamu harus mengurus fd, partial write, dan jumlah byte secara manual. Karena itu C standard library menyediakan lapisan yang lebih nyaman, yaitu **`stdio`** (`<stdio.h>`), berbasis tipe **`FILE*`**. `FILE*` adalah pointer ke struktur yang membungkus fd, buffer, dan state I/O.
+Menggunakan syscall langsung sering membutuhkan lebih banyak kode. Program harus mengelola fd, jumlah byte, partial write, dan detail lain secara manual. C standard library menyediakan lapisan `stdio` melalui `<stdio.h>` untuk penggunaan yang lebih nyaman.
 
-Versi `stdio` dari program di atas:
+`stdio` menggunakan tipe `FILE*`. Tipe ini adalah pointer ke struktur internal library yang menyimpan fd, buffer, status error, dan informasi lain.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
-    FILE *f = fopen("output.txt", "w");   // "w" = write, buat/truncate
-    if (f == NULL) {                       // gagal -> NULL (bukan -1!)
+    FILE *f = fopen("output.txt", "w");
+    if (f == NULL) {
         perror("fopen");
         return 1;
     }
 
-    fprintf(f, "Halo dari stdio!\n");      // tulis terformat (seperti printf)
+    fprintf(f, "Halo dari stdio!\n");
     fputs("Baris kedua.\n", f);
 
-    fclose(f);                             // tutup + flush buffer
+    fclose(f);
     return 0;
 }
 ```
 
-Fungsi-fungsi utama `stdio`:
-- **`fopen(path, mode)`** → buka file, kembalikan `FILE*` (atau `NULL` kalau gagal). Mode: `"r"` (read), `"w"` (write/truncate), `"a"` (append), `"r+"` (read+write), tambah `"b"` untuk biner (`"rb"`).
-- **`fprintf` / `fscanf`** — seperti `printf`/`scanf` tapi ke/dari file.
-- **`fgets` / `fputs`** — baca/tulis baris (string).
-- **`fread` / `fwrite`** — baca/tulis blok biner mentah.
-- **`fclose`** — tutup file, **dan flush buffer** (penting, lihat Bagian 12.5).
+Fungsi utama pada `stdio` meliputi hal berikut.
 
-### `stdio` dibangun di atas syscall
+- **`fopen(path, mode)`** membuka file dan mengembalikan `FILE*`. Jika gagal, fungsi ini mengembalikan `NULL`. Mode yang umum adalah `"r"` untuk membaca, `"w"` untuk menulis dengan truncate, `"a"` untuk append, dan `"r+"` untuk membaca sekaligus menulis. Tambahan `"b"` digunakan untuk mode biner.
+- **`fprintf` dan `fscanf`** melakukan I/O terformat ke atau dari file.
+- **`fgets` dan `fputs`** membaca atau menulis string.
+- **`fread` dan `fwrite`** membaca atau menulis blok data biner.
+- **`fclose`** menutup stream dan melakukan flush pada buffer yang masih tersisa.
 
-Hubungan kuncinya:
+### Hubungan `stdio` dan Syscall
 
-> **`FILE*` (stdio) adalah pembungkus (wrapper) di atas file descriptor.** Di dalam struktur `FILE` ada fd-nya, ditambah **buffer** dan state. `fprintf` pada akhirnya memanggil `write` (syscall), sedangkan `fopen` pada akhirnya membuka file lewat mekanisme kernel. `stdio` berada di user space sebagai lapisan kenyamanan; syscall adalah pintu masuk ke kernel.
+`stdio` dibangun di atas syscall. Fungsi seperti `fopen` pada akhirnya membuka file melalui mekanisme sistem operasi. Fungsi seperti `fprintf` dan `fputs` menulis data ke buffer, lalu data tersebut dikirim ke kernel melalui syscall seperti `write`.
 
-```
-Kode-mu
+```text
+Kode program
    |
-   | fprintf, fputs, fread ...   <- stdio (libc, user space): + BUFFER, + format
+   | fprintf, fputs, fread
    v
-FILE* { fd, buffer, ... }
+FILE* dengan fd, buffer, dan state
    |
-   | write, read ...             <- syscall: menyeberang ke kernel
+   | read, write
    v
-Kernel -> disk/terminal/socket
+Kernel
+   |
+   v
+Disk, terminal, pipe, atau socket
 ```
 
-Jadi `printf` sebenarnya `fprintf(stdout, ...)`. Byte yang dicetak ditampung dulu di buffer, lalu pada saat tertentu `stdio` memanggil `write(1, ...)`. Pemahaman lapisan ini langsung menjelaskan topik berikutnya, yaitu buffering.
+Dengan demikian, `stdio` memberi kenyamanan dan buffering di user space, sedangkan syscall menjadi lapisan dasar untuk meminta layanan I/O dari kernel.
 
 ---
 
-## 12.5 Buffering: kenapa output kadang "tertahan"
+## 12.5 Buffering
 
-Pernah mengalami `printf` yang tidak langsung muncul? Atau output yang hilang saat program crash? Itu terkait **buffering**.
+Buffering adalah teknik menyimpan sementara data I/O di memori sebelum data benar-benar dikirim ke tujuan. Teknik ini digunakan untuk mengurangi jumlah syscall, karena berpindah dari user space ke kernel memiliki biaya yang lebih tinggi dibanding operasi biasa di memori.
 
-### Kenapa buffering ada
+Jika setiap karakter langsung dikirim dengan syscall terpisah, program akan melakukan terlalu banyak pemanggilan kernel. Dengan buffering, beberapa data dikumpulkan lebih dulu, lalu dikirim sekaligus. Hasilnya, I/O menjadi lebih efisien.
 
-Memanggil syscall `write` itu relatif **mahal** karena program harus menyeberang ke kernel (Bab 19). Kalau tiap karakter dari `printf("Halo")` memicu satu `write`, ada beberapa syscall untuk output yang sangat kecil. Itu boros.
+### Mode Buffering
 
-Karena itu, `stdio` menumpuk output di **buffer** terlebih dahulu, lalu baru memanggil `write` saat buffer penuh atau pada momen tertentu. Banyak byte bisa dikirim dengan satu syscall, sehingga lebih efisien.
+`stdio` memiliki beberapa mode buffering.
 
-Buffer membuat banyak output kecil bisa dikumpulkan lebih dulu, lalu dikirim sekaligus. Dengan begitu, program tidak perlu masuk ke kernel untuk setiap karakter atau potongan kecil.
+1. **Fully buffered**. Buffer dikosongkan ketika penuh. Mode ini umum digunakan saat output menuju file.
+2. **Line buffered**. Buffer dikosongkan ketika menemukan newline `\n`. Mode ini umum digunakan saat output menuju terminal.
+3. **Unbuffered**. Data dikirim sesegera mungkin. Mode ini umum digunakan untuk stderr agar pesan error cepat terlihat.
 
-### Tiga mode buffering
+Karena buffering, output dari `printf` tidak selalu langsung terlihat. Pada terminal, `printf("Halo")` tanpa newline dapat tertahan hingga buffer di-flush. Sebaliknya, `fprintf(stderr, ...)` biasanya langsung terlihat karena stderr umumnya tidak di-buffer.
 
-`stdio` punya tiga mode, dan default-nya bergantung ke mana output pergi:
+### `fflush`
 
-1. **Fully buffered** — buffer dikosongkan (flush) hanya saat penuh. Default saat output ke **file**.
-2. **Line buffered** — flush tiap ketemu newline (`\n`). Default saat output ke **terminal** (interaktif).
-3. **Unbuffered** — langsung flush tiap operasi. Default untuk **stderr**, karena pesan error sebaiknya segera terlihat.
-
-Inilah kenapa `stderr` biasanya tidak tertahan, tetapi `stdout` ke file bisa. Ini juga menjelaskan kenapa di terminal `printf("Halo")` *tanpa* `\n` kadang tidak langsung muncul: buffer-nya line-buffered dan menunggu newline.
-
-### `\n` bukan jaminan; `fflush` adalah
+Fungsi `fflush(stream)` memaksa isi buffer stream dikirim saat itu juga.
 
 ```c
 #include <stdio.h>
 #include <unistd.h>
 
 int main(void) {
-    printf("Memproses");        // tanpa \n -> mungkin tertahan di buffer
-    // (saat ini layar mungkin masih kosong!)
-    fflush(stdout);             // paksa flush buffer ke kernel sekarang
-    sleep(2);                   // jeda; sekarang "Memproses" sudah terlihat
-    printf(" selesai\n");       // \n di terminal memicu flush
+    printf("Memproses");
+    fflush(stdout);
+    sleep(2);
+    printf(" selesai\n");
     return 0;
 }
 ```
 
-`fflush(stream)` **memaksa** buffer dikosongkan saat itu juga. Coba hapus `fflush` dan jalankan. "Memproses" bisa baru muncul setelah jeda, atau bersamaan dengan " selesai", karena sebelumnya tertahan di buffer.
+Tanpa `fflush(stdout)`, teks `Memproses` dapat tertahan sampai newline berikutnya atau sampai program selesai secara normal.
 
-### Jebakan klasik: output hilang saat crash
+### Output yang Hilang Saat Program Berhenti Tidak Normal
 
-Karena buffer berada di memori proses, kalau program **crash** (segfault) sebelum buffer di-flush, output yang sudah di-`printf` tetapi belum di-flush bisa hilang. Ini menyesatkan saat debug: kamu bisa mengira `printf` debug-mu tidak pernah jalan, padahal outputnya hanya tertahan di buffer yang tidak sempat dikosongkan.
+Buffer berada di memori proses. Jika program crash sebelum buffer di-flush, output yang sudah ditulis dengan `printf` dapat hilang.
 
 ```c
-printf("sebelum crash");   // tanpa \n, fully/line buffered -> di buffer
+printf("sebelum crash");
 int *p = NULL;
-*p = 5;                    // crash -> "sebelum crash" mungkin tidak pernah muncul
+*p = 5;
 ```
 
-> Saat melacak crash dengan `printf`, akhiri pesan dengan `\n` (di terminal ini memicu flush), panggil `fflush(stdout)`, atau pakai `fprintf(stderr, ...)` yang biasanya unbuffered. Kalau tidak, kamu bisa salah menyimpulkan lokasi crash.
+Pada contoh tersebut, teks `sebelum crash` belum tentu muncul. Untuk debugging dengan `printf`, akhiri pesan dengan newline saat output menuju terminal, panggil `fflush(stdout)`, atau gunakan `fprintf(stderr, ...)`.
 
-> `fclose` dan keluar normal dari `main` (`return`/`exit`) otomatis mem-flush buffer stdio. Namun `_exit`, `abort`, dan crash **tidak**. Karena itu, buffer yang belum di-flush biasanya menjadi masalah saat program berhenti tidak normal.
+`fclose`, `return` dari `main`, dan `exit` melakukan flush pada stream `stdio` secara normal. Namun, `_exit`, `abort`, dan crash tidak menjamin buffer sempat dikirim.
 
 ---
 
-## 12.6 Contoh lengkap: membaca file baris demi baris
+## 12.6 Membaca File Baris demi Baris
 
-Pola berikut sangat umum: membaca file teks baris demi baris.
+Pola membaca file teks baris demi baris sering digunakan pada program C.
 
 ```c
 #include <stdio.h>
@@ -238,15 +219,15 @@ Pola berikut sangat umum: membaca file teks baris demi baris.
 int main(void) {
     FILE *f = fopen("data.txt", "r");
     if (f == NULL) {
-        perror("fopen");            // mis. "fopen: No such file or directory"
+        perror("fopen");
         return 1;
     }
 
     char baris[256];
     int nomor = 1;
-    // fgets membaca satu baris (termasuk \n) sampai 255 char; berhenti di EOF -> NULL
+
     while (fgets(baris, sizeof(baris), f) != NULL) {
-        printf("%4d | %s", nomor++, baris);   // baris sudah termasuk \n
+        printf("%4d | %s", nomor++, baris);
     }
 
     fclose(f);
@@ -254,67 +235,71 @@ int main(void) {
 }
 ```
 
-Catatan penting:
-- **`fgets(buf, size, f)`** aman karena dibatasi `size`. Fungsi ini tidak akan menulis melewati buffer. Ini berbeda dari `gets`, yang **berbahaya** dan sudah dihapus dari standar; jangan pernah pakai `gets`. Ingat pelajaran buffer overflow dari Bab 5.
-- Loop berhenti saat `fgets` mengembalikan `NULL` — yang terjadi di **EOF** (akhir file) atau error.
-- Pakai `sizeof(baris)` sebagai batas, jangan tulis angka `256` keras-keras (kalau ukuran array berubah, batas ikut otomatis).
+Beberapa hal yang perlu diperhatikan.
 
-Ada satu detail praktis yang sering muncul saat memakai `fgets`: kalau satu baris lebih panjang dari ukuran buffer, `fgets` hanya membaca potongan pertama. Sisa baris akan terbaca pada iterasi berikutnya. Jadi ukuran buffer tetap perlu dipilih sesuai kebutuhan, terutama saat memproses file teks yang barisnya bisa panjang.
-
----
-
-## 12.7 Kapan pakai yang mana: `stdio` vs syscall langsung
-
-| Aspek | **`stdio` (`FILE*`)** | **syscall (`fd`)** |
-|-------|----------------------|---------------------|
-| Level | tinggi (nyaman) | rendah (mentah) |
-| Buffering | otomatis (efisien) | tidak ada (kamu urus sendiri) |
-| Formatting | ada (`fprintf`/`fscanf`) | tidak (byte mentah) |
-| Portability | standar C (lintas OS) | POSIX (UNIX-like) |
-| Kontrol presisi | kurang | penuh |
-| Cocok untuk | I/O file teks/umum sehari-hari | I/O performa-kritis, non-file (socket, pipe), kontrol penuh |
-
-Untuk pekerjaan file biasa, default yang baik adalah **`stdio`**. Lapisan ini lebih mudah, lebih portable, dan buffering-nya membantu efisiensi. Turun ke syscall langsung saat kamu butuh kontrol presisi atas kapan data benar-benar ditulis, bekerja dengan socket/pipe (Bab 16 dan 18), atau ingin menghindari overhead/perilaku buffering `stdio`.
-
-Hal yang perlu dipegang adalah posisi lapisannya. `stdio` berada di atas syscall, sehingga perilaku `printf`, `fprintf`, `fgets`, dan `fclose` tetap berakhir pada operasi I/O yang dikelola kernel.
+- **`fgets(buf, size, f)`** membatasi jumlah karakter yang dibaca, sehingga tidak menulis melewati ukuran buffer. Fungsi `gets` berbahaya dan sudah dihapus dari standar C, sehingga tidak boleh digunakan.
+- Loop berhenti ketika `fgets` mengembalikan `NULL`. Kondisi ini dapat berarti akhir file atau error.
+- Gunakan `sizeof(baris)` sebagai batas ukuran agar nilai batas tetap sesuai ketika ukuran array berubah.
 
 ---
 
-## 12.8 Rangkuman model mental
+## 12.7 Memilih `stdio` atau Syscall Langsung
 
-1. **"Everything is a file"** berarti file, terminal, socket, pipe, dan device dapat diakses lewat antarmuka file yang seragam (`read`/`write`).
-2. **File descriptor (fd)** adalah integer kecil yang menjadi indeks ke tabel fd milik proses. fd `0`, `1`, dan `2` sudah terbuka sejak awal sebagai stdin, stdout, dan stderr; ini menjadi dasar redirection shell.
-3. **Syscall I/O** (`open`/`read`/`write`/`close`) adalah lapisan dasar yang berbicara langsung ke kernel tanpa buffer dari C standard library. Saat gagal, syscall umumnya mengembalikan **`-1`** dan detailnya disimpan di `errno`. Return value harus dicek, dan fd yang sudah tidak dipakai harus ditutup.
-4. **`stdio`** (`fopen`/`fprintf`/`FILE*`) adalah lapisan nyaman **di atas** syscall. Ia menambah **buffer** dan formatting. Saat gagal membuka file, `fopen` mengembalikan **`NULL`**.
-5. **Buffering** ada untuk efisiensi karena mengurangi jumlah syscall yang mahal. Mode umumnya adalah fully buffered untuk file, line buffered untuk terminal, dan unbuffered untuk stderr. Output bisa **tertahan**; `\n` di terminal atau **`fflush`** dapat memaksa buffer keluar. Jika program crash sebelum flush, output yang masih di buffer bisa hilang.
-6. Untuk file biasa, gunakan **`stdio`** sebagai default. Pilih **syscall** saat butuh kontrol presisi, bekerja dengan socket atau pipe, atau ingin mengelola sendiri perilaku I/O level rendah.
+| Aspek | `stdio` dengan `FILE*` | Syscall dengan fd |
+|-------|-------------------------|-------------------|
+| Level | Lebih tinggi | Lebih rendah |
+| Buffering | Otomatis | Tidak disediakan oleh library |
+| Formatting | Tersedia melalui `fprintf` dan `fscanf` | Tidak tersedia |
+| Portabilitas | Standar C | POSIX dan sistem sejenis UNIX |
+| Kontrol | Lebih terbatas | Lebih rinci |
+| Cocok untuk | File teks dan I/O umum | Socket, pipe, I/O khusus, atau kontrol penuh |
 
----
+Untuk I/O file biasa, `stdio` biasanya menjadi pilihan awal karena lebih ringkas, portabel, dan memiliki buffering otomatis. Syscall langsung lebih sesuai ketika program membutuhkan kontrol rinci, bekerja dengan socket atau pipe, atau perlu mengatur perilaku I/O pada level yang lebih rendah.
 
-## 12.9 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Tulis program yang membuat file `output.txt` dan menulis beberapa baris dengannya, **dua versi**: satu pakai syscall (`open`/`write`/`close`), satu pakai stdio (`fopen`/`fprintf`/`fclose`). Bandingkan mana yang lebih ringkas.
-2. Tulis program "cat" sederhana: baca file (nama dari `argv[1]`) baris demi baris dengan `fgets` dan cetak ke layar dengan nomor baris. (Gabungkan dengan `argv` dari Bab 7!)
-3. Demonstrasikan buffering: `printf("Halo");` **tanpa** `\n`, lalu `sleep(3)`, lalu `printf(" dunia\n");`. Jalankan. Kapan "Halo" muncul? Lalu tambahkan `fflush(stdout)` setelah "Halo" — apa bedanya?
-4. Buktikan output hilang saat crash: `printf("debug A");` (tanpa `\n`), lalu dereference NULL untuk crash. Apakah "debug A" muncul? Lalu ubah jadi `printf("debug A\n");` atau `fprintf(stderr, "debug A");` — sekarang muncul?
-5. Jalankan program-mu dengan redirection: `./program > hasil.txt` dan `./program 2> error.txt`. Amati ke mana stdout vs stderr pergi. Hubungkan dengan fd 1 vs 2.
-6. Buka file yang tidak ada dengan `fopen(..., "r")`. Cek return `NULL` dan panggil `perror("fopen")`. Apa pesannya?
-7. (Lanjutan) Pakai `read` mentah untuk membaca file ke buffer dan hitung berapa byte. Bandingkan jumlahnya dengan ukuran file (`ls -l`).
-
-**Pertanyaan refleksi:**
-
-1. Apa maksud "everything is a file" di UNIX, dan kenapa desain ini berguna?
-2. Apa itu file descriptor, dan apa hubungannya dengan tabel fd milik proses? Apa peran fd 0, 1, 2?
-3. Jelaskan hubungan antara `stdio` (`FILE*`) dan syscall (`fd`). Yang mana di atas yang mana?
-4. Kenapa buffering ada? Apa trade-off-nya?
-5. Kenapa `printf` tanpa `\n` kadang tak langsung muncul di terminal, tapi `fprintf(stderr, ...)` selalu muncul?
-6. Kenapa output debug bisa "hilang" saat program crash, dan bagaimana cara mencegah salah-paham ini saat debugging?
-7. Kapan kamu memilih syscall mentah ketimbang `stdio`? Sebutkan dua situasi.
+Hal yang penting adalah memahami bahwa `stdio` berada di atas syscall. Dengan pemahaman ini, perilaku seperti buffering, flush, dan redirection dapat dianalisis dengan lebih tepat.
 
 ---
 
-Kita sudah memakai I/O untuk berbicara dengan kernel, dan kamu sudah beberapa kali melihat pola `if (... == -1) perror(...)`.
+## 12.8 Rangkuman Model Mental
 
-Di Bab 13, kita akan membahas **error handling di C**. Fokusnya adalah konvensi return value, variabel **`errno`**, fungsi `perror`/`strerror`, dan strategi menangani error di bahasa yang tidak punya exception.
+1. UNIX dan Linux memperlakukan banyak sumber data melalui antarmuka file yang seragam.
+2. File descriptor adalah integer non-negatif yang menjadi indeks ke tabel fd milik proses.
+3. Fd 0, 1, dan 2 biasanya sudah terbuka sebagai stdin, stdout, dan stderr.
+4. Syscall I/O seperti `open`, `read`, `write`, dan `close` berinteraksi langsung dengan kernel.
+5. Syscall umumnya memakai `-1` sebagai tanda gagal, dengan detail error melalui `errno`.
+6. `stdio` menyediakan lapisan yang lebih nyaman melalui `FILE*`, `fopen`, `fprintf`, `fgets`, dan fungsi sejenis.
+7. `stdio` dibangun di atas syscall dan menambahkan buffering serta formatting.
+8. Buffering mengurangi jumlah syscall, tetapi dapat membuat output tertahan.
+9. `fflush` memaksa buffer dikirim saat itu juga.
+10. Output yang belum di-flush dapat hilang jika program berhenti tidak normal.
+11. `stdio` cocok untuk I/O umum, sedangkan syscall langsung cocok untuk kontrol yang lebih rinci.
+
+---
+
+## 12.9 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Tulis program yang membuat file `output.txt` dan menulis beberapa baris ke file tersebut. Buat dua versi, satu memakai syscall `open`, `write`, dan `close`, lalu satu memakai `stdio` dengan `fopen`, `fprintf`, dan `fclose`.
+2. Tulis program seperti `cat` sederhana. Baca nama file dari `argv[1]`, baca isinya baris demi baris dengan `fgets`, lalu cetak ke layar dengan nomor baris.
+3. Demonstrasikan buffering dengan `printf("Halo")` tanpa newline, `sleep(3)`, lalu `printf(" dunia\n")`. Tambahkan `fflush(stdout)` setelah `printf("Halo")` dan amati perbedaannya.
+4. Demonstrasikan output yang hilang saat crash dengan `printf("debug A")` tanpa newline, lalu dereference pointer `NULL`. Ulangi dengan newline atau `fprintf(stderr, ...)`.
+5. Jalankan program dengan redirection menggunakan `./program > hasil.txt` dan `./program 2> error.txt`. Amati perbedaan tujuan stdout dan stderr.
+6. Buka file yang tidak ada dengan `fopen(..., "r")`. Periksa nilai kembaliannya dan panggil `perror("fopen")`.
+7. Gunakan `read` untuk membaca file ke buffer dan hitung jumlah byte yang terbaca. Bandingkan hasilnya dengan ukuran file dari `ls -l`.
+
+### Pertanyaan Refleksi
+
+1. Apa maksud antarmuka file yang seragam pada UNIX dan Linux?
+2. Apa itu file descriptor dan apa hubungannya dengan tabel fd milik proses?
+3. Apa peran fd 0, 1, dan 2?
+4. Bagaimana hubungan antara `stdio` dan syscall?
+5. Mengapa buffering digunakan pada `stdio`?
+6. Mengapa `printf` tanpa newline kadang tidak langsung terlihat?
+7. Mengapa output debug dapat hilang ketika program crash?
+8. Kapan syscall langsung lebih tepat daripada `stdio`?
+
+---
+
+Bab ini menjelaskan cara program C berinteraksi dengan file dan layanan I/O sistem operasi. Pada Bab 13, pembahasan berlanjut ke error handling di C, termasuk konvensi return value, `errno`, `perror`, `strerror`, dan strategi menangani kegagalan secara teratur.
+

@@ -1,27 +1,26 @@
 ---
-title: "Bab 4 — Functions, Stack & Calling Convention"
-description: "Di Bab 2, kita membahas data. Di Bab 3, kita membahas eksekusi, branch, dan Instruction Pointer. Sekarang dua konsep itu bertemu saat kita membahas fungsi. Fungsi..."
-tags: [c, system-programming]
+title: "Bab 4 - Fungsi, Stack, dan Konvensi Pemanggilan"
+description: "Bab sebelumnya telah membahas data, eksekusi, dan percabangan. Bab ini menghubungkan konsep tersebut dengan fungsi, terutama apa yang terjadi di memori saat sebuah..."
+tags: [c, systems-programming]
 order: 4
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Bab sebelumnya telah membahas data, eksekusi, dan percabangan. Bab ini menghubungkan konsep tersebut dengan fungsi, terutama apa yang terjadi di memori saat sebuah fungsi dipanggil.
 
-> "Setiap kali fungsi dipanggil, CPU perlu tahu satu hal penting: setelah fungsi ini selesai, eksekusi harus kembali ke mana?"
-
-Di Bab 2, kita membahas data. Di Bab 3, kita membahas eksekusi, branch, dan Instruction Pointer. Sekarang dua konsep itu bertemu saat kita membahas **fungsi**. Fungsi bukan hanya cara membuat blok kode yang bisa dipanggil ulang; setiap pemanggilan fungsi juga meninggalkan jejak di memori.
-
-Di bab ini, beberapa konsep dasar C akan dipakai sekaligus: **stack frame**, **return address**, dan **calling convention**. Setelah memahaminya, kamu akan mengerti kenapa variabel lokal hilang setelah fungsi selesai, kenapa recursion bisa membuat program crash, dan nanti di Bab 21, kenapa buffer overflow bisa membajak alur program.
+Fungsi bukan sekadar cara memecah program menjadi beberapa blok kode. Di balik pemanggilan fungsi, CPU dan compiler bekerja dengan stack frame, return address, register, dan aturan ABI. Pemahaman ini penting untuk menjelaskan mengapa variabel lokal hanya hidup selama fungsi berjalan, mengapa rekursi dapat membuat program crash, dan mengapa buffer overflow dapat mengubah alur eksekusi program.
 
 ---
 
-## 4.1 Kenapa kita butuh fungsi
+## 4.1 Mengapa Fungsi Diperlukan
 
-Alasan praktis memakai fungsi cukup jelas. Fungsi menghindari pengulangan kode, memecah masalah besar menjadi bagian kecil, dan membuat program lebih mudah dibaca. Mari mulai dari bentuk dasarnya:
+Fungsi membantu program tetap terstruktur. Kode yang berulang dapat dipindahkan ke satu tempat, masalah besar dapat dipecah menjadi bagian yang lebih kecil, dan maksud program menjadi lebih mudah dibaca.
+
+Contoh sederhana.
 
 ```c
 #include <stdio.h>
 
-// deklarasi (prototype): janji bahwa fungsi ini ada
+// deklarasi atau prototype
 int tambah(int a, int b);
 
 int main(void) {
@@ -30,331 +29,317 @@ int main(void) {
     return 0;
 }
 
-// definisi: implementasi sesungguhnya
+// definisi fungsi
 int tambah(int a, int b) {
     int total = a + b;
     return total;
 }
 ```
 
-Beberapa istilah perlu dipakai dengan tepat:
+Beberapa istilah perlu digunakan secara presisi.
 
-- **Return type** (`int`) — tipe nilai yang dikembalikan fungsi.
-- **Parameter** (`int a, int b`) — variabel yang menerima nilai saat fungsi dipanggil. Parameter adalah variabel lokal di dalam fungsi.
-- **Argument** — nilai aktual yang dikirim saat pemanggilan, misalnya `3` dan `4`. Parameter adalah wadah; argumen adalah isi yang dimasukkan ke wadah itu.
-- **Return value** — nilai yang dikirim kembali ke pemanggil lewat `return`.
+- **Tipe kembalian** adalah tipe nilai yang dikembalikan fungsi. Pada contoh di atas, tipe kembalian fungsi `tambah` adalah `int`.
+- **Parameter** adalah variabel yang menerima nilai saat fungsi dipanggil. Pada contoh di atas, `a` dan `b` adalah parameter.
+- **Argumen** adalah nilai aktual yang dikirim saat fungsi dipanggil. Pada contoh di atas, `3` dan `4` adalah argumen.
+- **Nilai kembalian** adalah nilai yang dikirim kembali ke pemanggil melalui `return`.
 
-Ingat dari Bab 1: **deklarasi** atau prototype adalah janji bahwa fungsi dengan bentuk tertentu tersedia. **Definisi** adalah kode fungsi yang sebenarnya. Prototype perlu terlihat sebelum fungsi dipanggil agar compiler bisa mengecek tipe argumen. Jika definisi `tambah` ditulis di atas `main`, prototype tidak wajib. Namun kebiasaan menulis prototype tetap berguna, terutama saat program dipecah menjadi banyak file di Bab 11.
+Deklarasi atau prototype memberi tahu compiler bahwa sebuah fungsi tersedia dengan bentuk tertentu. Definisi berisi implementasi fungsi tersebut. Prototype perlu diketahui compiler sebelum fungsi dipanggil agar tipe argumen dapat diperiksa. Jika definisi fungsi ditulis sebelum `main`, prototype tidak wajib. Namun, dalam program yang dibagi ke banyak file, prototype menjadi bagian penting dari struktur kode.
 
 ---
 
-## 4.2 Pass by value: C selalu mengirim salinan
+## 4.2 Pass by Value
 
-Konsep ini perlu jelas sejak awal, karena banyak bug C berawal dari salah paham di sini.
-
-> **Di C, argumen selalu dikirim sebagai salinan (pass by value). Fungsi bekerja pada salinan, bukan pada variabel asli milik pemanggil.**
+C selalu mengirim argumen sebagai salinan. Fungsi bekerja pada salinan tersebut, bukan pada variabel asli milik pemanggil.
 
 ```c
 #include <stdio.h>
 
 void coba_ubah(int x) {
-    x = 999;            // ini mengubah SALINAN lokal, bukan asli
-    printf("di dalam fungsi: x = %d\n", x);  // 999
+    x = 999;
+    printf("di dalam fungsi, x = %d\n", x);
 }
 
 int main(void) {
     int a = 5;
     coba_ubah(a);
-    printf("setelah dipanggil: a = %d\n", a); // tetap 5!
+    printf("setelah dipanggil, a = %d\n", a);
     return 0;
 }
 ```
 
-Output:
+Output program.
 
+```text
+di dalam fungsi, x = 999
+setelah dipanggil, a = 5
 ```
-di dalam fungsi: x = 999
-setelah dipanggil: a = 5
-```
 
-`a` tetap bernilai `5`. Saat `coba_ubah(a)` dipanggil, nilai `5` disalin ke parameter `x`. `x` adalah variabel baru yang terpisah di memori. Mengubah `x` tidak menyentuh `a`.
+Nilai `a` tetap `5`. Saat `coba_ubah(a)` dipanggil, nilai `5` disalin ke parameter `x`. Parameter `x` adalah variabel lokal baru yang terpisah dari `a`. Mengubah `x` tidak mengubah `a`.
 
-Bayangkan kamu memberi teman fotokopi dokumen. Ia boleh mencoret-coret fotokopi itu, tetapi dokumen asli tetap tidak berubah. Begitu pula dengan pass by value.
-
-Kalau kamu ingin fungsi mengubah variabel asli, yang dikirim bukan nilainya, melainkan **alamat**-nya. Itu berarti memakai pointer, dan akan kita bahas di Bab 6. Untuk sekarang, pegang aturan dasar bahwa **pemanggilan fungsi di C menyalin nilai argumen ke parameter.**
+Jika sebuah fungsi perlu mengubah variabel asli milik pemanggil, fungsi tersebut harus menerima alamat variabel melalui pointer. Pembahasan itu dimulai pada Bab 6. Untuk saat ini, hal terpenting adalah memahami bahwa pemanggilan fungsi di C selalu berbasis salinan.
 
 ---
 
-## 4.3 Stack: tempat fungsi hidup
+## 4.3 Stack sebagai Tempat Kerja Fungsi
 
-Sekarang pertanyaannya, **di mana parameter `x`, variabel lokal `total`, dan variabel lokal lain disimpan?** Semuanya disimpan di region memori bernama **stack**, atau lebih lengkapnya **call stack**.
+Parameter, variabel lokal, return address, dan beberapa data pendukung pemanggilan fungsi disimpan di region memori bernama **stack**. Dalam konteks pemanggilan fungsi, stack sering disebut **call stack**.
 
-### Apa itu stack?
+### Sifat stack
 
-Stack adalah region memori yang dikelola dengan disiplin **LIFO** (Last In, First Out): yang terakhir masuk akan keluar lebih dulu. Bayangkan tumpukan piring. Piring baru ditaruh di atas, dan saat mengambil, kamu juga mengambil dari atas. Kamu tidak mengambil piring dari tengah tumpukan.
-
-Dalam konteks fungsi, setiap pemanggilan fungsi menambahkan catatan baru di atas stack. Catatan itu berisi informasi yang dibutuhkan fungsi tersebut: variabel lokal, sebagian informasi register, dan alamat untuk kembali setelah fungsi selesai. Saat fungsi selesai, catatan paling atas dibuang, lalu eksekusi kembali ke pemanggil.
+Stack dikelola dengan disiplin **LIFO** atau **Last In, First Out**. Data yang masuk paling akhir akan keluar paling awal. Pada pemanggilan fungsi, frame fungsi yang sedang berjalan berada di posisi paling atas secara logis. Saat fungsi selesai, frame tersebut dilepas dan eksekusi kembali ke pemanggil.
 
 ### Stack frame
 
-Setiap kali sebuah fungsi dipanggil, satu ruang di stack dialokasikan untuk fungsi itu. Ruang ini disebut **stack frame** atau *activation record*. Satu stack frame berisi:
+Setiap pemanggilan fungsi mendapatkan area kerja sendiri di stack. Area ini disebut **stack frame** atau **activation record**. Isi tepatnya bergantung pada arsitektur, compiler, level optimisasi, dan calling convention, tetapi secara konseptual stack frame memuat beberapa bagian penting.
 
-- **Parameter** fungsi, yaitu salinan argumen dari pemanggil.
-- **Variabel lokal** fungsi.
-- **Return address** — alamat instruksi di pemanggil yang harus dituju setelah fungsi selesai. Jika mengingat Instruction Pointer dari Bab 3, return address adalah nilai tujuan yang akan dipakai untuk mengembalikan IP.
-- Beberapa nilai register yang perlu disimpan sementara (saved registers).
+- Salinan parameter fungsi.
+- Variabel lokal fungsi.
+- **Return address**, yaitu alamat instruksi yang harus dijalankan setelah fungsi selesai.
+- Register tertentu yang perlu disimpan sementara.
 
-Saat fungsi melakukan `return`, frame-nya dibuang dari stack, lalu eksekusi melompat kembali ke return address. Inilah alasan variabel lokal hilang setelah fungsi selesai: variabel lokal hidup di stack frame, dan frame itu dibuang saat fungsi selesai. Memori tersebut kemudian bisa dipakai ulang oleh pemanggilan fungsi lain.
+Saat fungsi menjalankan `return`, stack frame miliknya dilepas. Karena variabel lokal berada di dalam frame tersebut, variabel lokal tidak lagi valid setelah fungsi selesai.
 
 ### Stack pointer
 
-CPU melacak puncak stack dengan register khusus bernama **stack pointer**. Di x86-64, register ini bernama `rsp`. Operasi push menggeser `rsp` untuk membuat ruang baru; pop menggesernya kembali.
+CPU melacak posisi stack melalui register khusus bernama **stack pointer**. Pada x86-64, register ini bernama `rsp`. Operasi yang menambah data ke stack menggeser stack pointer untuk menyediakan ruang. Operasi yang melepas data dari stack menggesernya kembali.
 
-Ada juga **base pointer** atau **frame pointer** (`rbp`) yang menandai dasar frame saat ini. Ini memudahkan akses ke parameter dan variabel lokal relatif terhadap posisi frame.
+Banyak fungsi juga menggunakan **base pointer** atau **frame pointer**. Pada x86-64, register yang umum digunakan adalah `rbp`. Register ini membantu compiler mengakses parameter dan variabel lokal dengan offset yang stabil dari awal frame.
 
-> **Fakta penting:** di banyak arsitektur, termasuk x86-64, **stack tumbuh ke bawah**, yaitu ke arah alamat yang lebih kecil. Jadi push justru mengurangi nilai `rsp`. Ini adalah konvensi arsitektur, dan penting saat membaca debugger atau assembly.
-
----
-
-## 4.4 Membongkar pemanggilan fungsi, langkah demi langkah
-
-Sekarang kita runut apa yang terjadi saat `main` memanggil `tambah(3, 4)` dari Bagian 4.1. Penjelasan ini disederhanakan, tetapi mengikuti pola umum di x86-64.
-
-**Sebelum pemanggilan:** stack berisi frame `main`.
-
-```
-  [ frame main ]   <- berisi variabel 'hasil', dll
-  ...ruang kosong di bawah...   (stack tumbuh ke bawah, ke alamat kecil)
-```
-
-**Langkah 1 — siapkan argumen.** Calling convention di Linux x86-64 (System V ABI) menentukan bahwa argumen integer pertama dikirim lewat register `rdi`, argumen kedua lewat `rsi`, ketiga lewat `rdx`, lalu `rcx`, `r8`, dan `r9`. Argumen berikutnya baru memakai stack. Jadi nilai `3` ditaruh di `edi`, dan `4` ditaruh di `esi`. Untuk fungsi sederhana, argumen sering tidak perlu menyentuh stack sama sekali karena register lebih cepat.
-
-**Langkah 2 — instruksi `call tambah`.** Instruksi `call` melakukan dua hal:
-
-1. **Push return address** ke stack, yaitu alamat instruksi setelah `call` di dalam `main`.
-2. Mengubah Instruction Pointer ke alamat awal fungsi `tambah`.
-
-```
-  [ frame main ]
-  [ return address -> ke dalam main ]   <- baru di-push oleh 'call'
-```
-
-**Langkah 3 — prolog fungsi `tambah`.** Begitu masuk ke `tambah`, fungsi menjalankan instruksi pembuka atau prolog. Prolog biasanya menyimpan base pointer lama, membuat frame baru, dan menggeser stack pointer untuk memberi ruang bagi variabel lokal seperti `total`.
-
-```
-  [ frame main ]
-  [ return address ]
-  [ frame tambah ]   <- a, b, total tinggal di sini (atau di register)
-```
-
-**Langkah 4 — body berjalan.** `total = a + b` dihitung oleh ALU seperti yang dibahas di Bab 3. Nilai return, yaitu `7`, ditaruh di register `eax`. Konvensinya, nilai return integer dikembalikan lewat `rax` atau `eax`.
-
-**Langkah 5 — epilog & `ret`.** Fungsi membereskan frame-nya lewat epilog, lalu menjalankan instruksi `ret`. Instruksi `ret`:
-
-1. **Pop return address** dari stack.
-2. Mengubah Instruction Pointer ke alamat itu, sehingga eksekusi kembali ke `main` tepat setelah `call`.
-
-```
-  [ frame main ]    <- frame tambah sudah hilang; kembali ke main
-```
-
-**Langkah 6 — `main` lanjut.** `main` mengambil nilai return dari `eax`, lalu menyimpannya ke variabel `hasil`.
-
-Jadi, pemanggilan fungsi pada level mesin adalah rangkaian langkah konkret. CPU menyimpan return address, lompat ke fungsi, membuat stack frame, menjalankan body, lalu memakai `ret` untuk kembali ke alamat yang sudah disimpan. Stack menyimpan jalur pulang itu. Tanpa stack, pemanggilan bertingkat seperti A memanggil B, B memanggil C, lalu C kembali ke B dan B kembali ke A akan sulit dikelola.
-
-> Kamu bisa melihat pola ini sendiri. Tulis kode Bagian 4.1, lalu compile dengan `gcc -S -O0` dan buka file `.s`. Cari `call tambah`, `push rbp` sebagai bagian dari prolog, `mov eax, ...` sebagai nilai return, `pop rbp`, dan `ret`. Kamu juga bisa memakai `gdb` di Bab 20: pasang `break tambah`, lalu jalankan `backtrace` untuk melihat tumpukan frame.
+Pada banyak arsitektur, termasuk x86-64, stack tumbuh ke arah alamat yang lebih kecil. Artinya, ketika ruang baru dialokasikan di stack, nilai `rsp` biasanya berkurang. Detail ini penting saat membaca assembly atau memeriksa memori dengan debugger.
 
 ---
 
-## 4.5 Calling convention: aturan main antar fungsi
+## 4.4 Pemanggilan Fungsi Langkah demi Langkah
 
-**Calling convention** adalah kontrak yang mengatur cara fungsi saling memanggil. Kontrak ini menentukan bagaimana argumen dikirim, di mana nilai return diletakkan, siapa yang membersihkan stack, register mana yang boleh diubah fungsi, dan register mana yang harus dijaga.
+Bagian ini membahas apa yang terjadi saat `main` memanggil `tambah(3, 4)`. Penjelasan ini disederhanakan, tetapi tetap mengikuti pola umum pada Linux x86-64 dengan System V ABI.
 
-Kontrak ini penting untuk beberapa alasan:
+Sebelum fungsi dipanggil, stack sudah berisi frame milik `main`.
 
-1. **Interoperability.** Fungsi hasil kompilasi `gcc` bisa memanggil fungsi dari library yang dikompilasi oleh compiler lain, selama keduanya mengikuti calling convention yang sama. Kontrak ini adalah bagian dari ABI, atau Application Binary Interface.
-2. **Memahami crash & assembly.** Saat membaca disassembly atau men-debug program, kamu akan sering melihat pola seperti `rdi`, `rsi`, dan `rax`. Dengan mengetahui konvensinya, kamu bisa membaca apa yang sedang terjadi.
-3. **Fondasi debugging dan keamanan tingkat lanjut.** Buffer overflow yang menimpa return address di Bab 21 hanya masuk akal kalau kamu memahami struktur stack frame dari Bagian 4.4.
+```text
+[ frame main ]
+```
 
-Kamu tidak perlu menghafal detail ABI sekarang. Yang perlu dipahami adalah adanya aturan ketat di balik pemanggilan fungsi. Sebagian argumen lewat register tertentu, nilai return biasanya lewat `rax`, dan beberapa register punya aturan penyimpanan sendiri.
+Langkah pertama adalah menyiapkan argumen. Pada System V ABI untuk x86-64, argumen integer pertama dikirim melalui `rdi`, argumen kedua melalui `rsi`, argumen ketiga melalui `rdx`, kemudian `rcx`, `r8`, dan `r9`. Argumen berikutnya menggunakan stack. Dalam contoh ini, nilai `3` masuk ke `edi` dan nilai `4` masuk ke `esi`.
+
+Langkah kedua adalah menjalankan instruksi `call tambah`. Instruksi `call` menyimpan return address ke stack, lalu mengubah Instruction Pointer agar menunjuk ke awal fungsi `tambah`.
+
+```text
+[ frame main ]
+[ return address ke main ]
+```
+
+Return address adalah alamat instruksi setelah `call` di fungsi pemanggil. Alamat inilah yang digunakan untuk melanjutkan eksekusi setelah `tambah` selesai.
+
+Langkah ketiga adalah prolog fungsi. Saat `tambah` mulai berjalan, compiler dapat menghasilkan instruksi pembuka untuk menyimpan base pointer lama, membuat base pointer baru, dan menyediakan ruang bagi variabel lokal.
+
+```text
+[ frame main ]
+[ return address ]
+[ frame tambah ]
+```
+
+Langkah keempat adalah menjalankan isi fungsi. Ekspresi `a + b` dihitung, lalu hasilnya disiapkan sebagai nilai kembalian. Pada konvensi x86-64 yang umum, nilai kembalian integer diletakkan di `eax` atau `rax`.
+
+Langkah kelima adalah epilog dan `ret`. Fungsi mengembalikan kondisi stack ke keadaan sebelum frame dibuat, lalu instruksi `ret` mengambil return address dari stack dan mengatur Instruction Pointer ke alamat tersebut.
+
+```text
+[ frame main ]
+```
+
+Langkah keenam adalah melanjutkan eksekusi di `main`. Nilai return diambil dari `eax` dan disimpan ke variabel `hasil`.
+
+Secara ringkas, pemanggilan fungsi berarti menyimpan return address dan melompat ke fungsi yang dipanggil. Return berarti mengambil return address dan melompat kembali ke pemanggil. Stack menyediakan struktur yang memungkinkan pemanggilan fungsi bertingkat seperti A memanggil B, B memanggil C, dan C kembali ke B sebelum B kembali ke A.
+
+Proses ini dapat diperiksa secara langsung dengan menghasilkan assembly dari contoh di atas.
+
+```sh
+gcc -S -O0 contoh.c
+```
+
+Di file assembly, cari instruksi seperti `call tambah`, `push rbp`, `mov eax, ...`, `pop rbp`, dan `ret`. Dengan `gdb`, perintah `backtrace` akan menampilkan urutan stack frame yang sedang aktif.
 
 ---
 
-## 4.6 Recursion: fungsi memanggil dirinya sendiri
+## 4.5 Konvensi Pemanggilan
 
-Karena setiap pemanggilan fungsi mendapat stack frame sendiri, sebuah fungsi bisa memanggil dirinya sendiri. Tiap level pemanggilan punya salinan parameter dan variabel lokalnya sendiri. Inilah **recursion**.
+Konvensi pemanggilan adalah aturan yang menentukan cara fungsi saling memanggil pada level mesin. Aturan ini mencakup lokasi argumen, register untuk nilai kembalian, tanggung jawab pembersihan stack, serta register yang harus dijaga oleh pemanggil atau oleh fungsi yang dipanggil.
+
+Konvensi pemanggilan penting karena beberapa alasan.
+
+- Fungsi hasil kompilasi satu compiler dapat memanggil fungsi dari pustaka lain selama keduanya mengikuti ABI yang sama.
+- Proses debugging dan pembacaan assembly menjadi lebih masuk akal karena pola register seperti `rdi`, `rsi`, dan `rax` memiliki arti tertentu.
+- Bug tingkat rendah seperti buffer overflow terhadap return address hanya dapat dipahami dengan benar jika struktur frame dan aturan pemanggilan fungsi sudah jelas.
+
+ABI atau **Application Binary Interface** adalah kontrak biner yang membuat kode dari sumber berbeda dapat bekerja bersama. Detail ABI tidak perlu dihafal pada tahap ini. Hal yang penting adalah pemanggilan fungsi mengikuti aturan ketat, bukan keputusan bebas dari setiap fungsi.
+
+---
+
+## 4.6 Rekursi
+
+Rekursi terjadi ketika sebuah fungsi memanggil dirinya sendiri. Ini dapat berjalan karena setiap pemanggilan fungsi mendapat stack frame sendiri. Variabel lokal pada satu level pemanggilan fungsi tidak sama dengan variabel lokal pada level lainnya.
 
 ```c
 #include <stdio.h>
 
 int faktorial(int n) {
-    if (n <= 1)            // base case: penghenti rekursi
+    if (n <= 1)
         return 1;
-    return n * faktorial(n - 1);   // recursive case
+    return n * faktorial(n - 1);
 }
 
 int main(void) {
-    printf("%d\n", faktorial(4));  // 24
+    printf("%d\n", faktorial(4));
     return 0;
 }
 ```
 
-Saat `faktorial(4)` berjalan, stack menumpuk seperti ini. Setiap baris mewakili satu frame:
+Saat `faktorial(4)` berjalan, urutan pemanggilan fungsi membentuk beberapa frame.
 
-```
-faktorial(4)  -> butuh hasil faktorial(3)
-  faktorial(3)  -> butuh hasil faktorial(2)
-    faktorial(2)  -> butuh hasil faktorial(1)
-      faktorial(1)  -> base case, return 1
+```text
+faktorial(4) membutuhkan faktorial(3)
+faktorial(3) membutuhkan faktorial(2)
+faktorial(2) membutuhkan faktorial(1)
+faktorial(1) mengembalikan 1
 ```
 
-Setelah mencapai base case, hasil mulai kembali ke atas saat tiap frame selesai:
+Setelah mencapai kondisi penghenti, hasil dikembalikan melalui frame yang masih aktif.
 
-```
+```text
 faktorial(1) = 1
 faktorial(2) = 2 * 1 = 2
 faktorial(3) = 3 * 2 = 6
 faktorial(4) = 4 * 6 = 24
 ```
 
-Setiap frame menyimpan nilai `n` sendiri. `n` di `faktorial(4)` adalah `4`, sementara `n` di `faktorial(3)` adalah `3`. Keduanya hidup di frame yang berbeda, sehingga tidak saling mengganggu. Karena itulah recursion bisa "mengingat" konteks tiap level.
+Setiap frame menyimpan nilai `n` sendiri. `n` pada `faktorial(4)` bernilai `4`, sedangkan `n` pada `faktorial(3)` bernilai `3`. Keduanya berada pada frame yang berbeda.
 
-**Base case harus ada.** Tanpa kondisi penghenti seperti `if (n <= 1)`, fungsi akan terus memanggil dirinya sendiri. Stack akan terus bertambah sampai habis, lalu program mengalami **stack overflow**.
+Rekursi wajib memiliki **base case**, yaitu kondisi yang menghentikan pemanggilan fungsi berikutnya. Tanpa base case, fungsi akan terus memanggil dirinya sendiri sampai stack habis.
 
 ---
 
-## 4.7 Stack overflow: saat tumpukan kepenuhan
+## 4.7 Stack Overflow
 
-Stack bukan ruang tak terbatas. Sistem operasi memberi tiap program jatah stack tertentu. Di Linux, default-nya sering sekitar 8 MB, dan bisa dicek dengan:
+Stack memiliki ukuran terbatas. Sistem operasi memberi setiap program jatah stack tertentu. Pada banyak sistem Linux, nilai default sering berada di kisaran beberapa megabyte dan dapat diperiksa dengan `ulimit -s`.
 
-```bash
-ulimit -s
+**Stack overflow** terjadi ketika kebutuhan stack melebihi jatah tersebut. Program biasanya berhenti dengan error seperti `Segmentation fault`.
+
+Dua penyebab umum stack overflow adalah rekursi yang terlalu dalam dan variabel lokal yang terlalu besar.
+
+Contoh rekursi tanpa base case.
+
+```c
+int infinite(int n) {
+    return infinite(n + 1);
+}
 ```
 
-Kalau stack frame menumpuk melebihi batas itu, terjadilah **stack overflow**. Program biasanya langsung crash dengan `Segmentation fault`.
+Contoh variabel lokal berukuran besar.
 
-Dua penyebab umum:
+```c
+void boros(void) {
+    int arr[10000000];
+    arr[0] = 1;
+}
+```
 
-1. **Recursion tak terbatas atau terlalu dalam.** Misalnya lupa base case, atau rekursi yang kedalamannya sangat besar.
-   ```c
-   int infinite(int n) {
-       return infinite(n + 1);   // tak ada base case -> stack overflow -> crash
-   }
-   ```
-2. **Variabel lokal raksasa.** Misalnya membuat array sangat besar di stack.
-   ```c
-   void boros(void) {
-       int arr[10000000];   // ~40 MB di stack -> kemungkinan besar overflow
-       arr[0] = 1;
-   }
-   ```
-   Untuk kasus seperti ini, array besar sebaiknya dialokasikan di **heap** memakai `malloc`, yang akan dibahas di Bab 9.
-
-Stack overflow bisa dibayangkan seperti tumpukan piring yang tingginya terbatas. Jika terus ditambah tanpa henti, akhirnya tumpukan itu melewati batas. Pada program, batas itu adalah jatah stack.
-
-> Situs tanya-jawab programmer terkenal itu dinamai "Stack Overflow" karena error klasik ini.
+Array pada contoh tersebut membutuhkan sekitar 40 MB jika `int` berukuran 4 byte. Ukuran ini sering melebihi jatah stack. Data besar sebaiknya dialokasikan di heap menggunakan `malloc`, yang dibahas pada Bab 9.
 
 ---
 
-## 4.8 Stack vs Heap: kenalan awal
+## 4.8 Stack dan Heap
 
-Heap akan dibahas tuntas di Bab 9. Namun karena stack dan heap sudah disebut, kita perlu peta singkatnya terlebih dahulu:
+Heap akan dibahas lebih lengkap pada Bab 9. Untuk saat ini, cukup pahami perbedaan dasarnya.
 
 | Aspek | **Stack** | **Heap** |
 |-------|-----------|----------|
-| Dikelola oleh | Otomatis (compiler/CPU, saat fungsi masuk/keluar) | Manual (kamu: `malloc`/`free`) |
-| Kecepatan | Sangat cepat (cuma geser pointer) | Lebih lambat (cari blok kosong) |
-| Ukuran | Terbatas (beberapa MB) | Besar (hampir sebesar RAM tersedia) |
-| Umur data | Selama fungsi berjalan | Sampai kamu `free` |
-| Untuk apa | Variabel lokal, parameter, return address | Data besar / yang umurnya melampaui satu fungsi |
+| Pengelolaan | Otomatis saat fungsi masuk dan keluar | Manual dengan `malloc` dan `free` |
+| Kecepatan | Sangat cepat karena cukup menggeser pointer | Lebih lambat karena allocator harus mencari dan mengelola blok |
+| Ukuran | Terbatas | Jauh lebih besar, bergantung pada memori yang tersedia |
+| Umur data | Selama fungsi atau blok terkait masih aktif | Sampai dilepas dengan `free` |
+| Penggunaan umum | Variabel lokal, parameter, return address | Data besar atau data yang harus hidup melewati akhir fungsi |
 
-Untuk sementara, pakai aturan praktis ini. **Variabel lokal biasa masuk stack** karena otomatis dan cepat. **Data besar atau data yang harus tetap hidup setelah fungsi selesai masuk heap**, tetapi harus dikelola manual.
-
-Perbedaan umur data adalah bagian yang paling sering menyebabkan bug. Nilai di stack mengikuti umur fungsi: begitu fungsi selesai, frame-nya hilang. Nilai di heap tidak otomatis hilang saat fungsi return, sehingga bisa dipakai melewati batas satu fungsi, tetapi kamu juga bertanggung jawab memanggil `free` pada waktu yang tepat.
+Aturan praktisnya sederhana. Variabel lokal biasa cocok berada di stack. Data besar atau data yang harus tetap hidup setelah fungsi selesai sebaiknya berada di heap.
 
 ---
 
-## 4.9 Bahaya klasik: mengembalikan alamat variabel lokal
+## 4.9 Bahaya Mengembalikan Alamat Variabel Lokal
 
-Karena variabel lokal mati saat fungsi selesai, kode seperti ini adalah bug serius:
+Variabel lokal tidak valid setelah fungsi selesai. Karena itu, mengembalikan alamat variabel lokal adalah bug serius.
 
 ```c
-int *bikin_angka(void) {
+int *buat_angka(void) {
     int x = 42;
-    return &x;        // BAHAYA: mengembalikan alamat variabel lokal!
-}                     // x mati di sini; alamatnya jadi dangling
+    return &x;
+}
 ```
 
-`x` hidup di stack frame `bikin_angka`. Begitu fungsi return, frame itu dibuang dan ruang memorinya bisa dipakai ulang oleh pemanggilan fungsi berikutnya. Alamat yang dikembalikan menunjuk ke memori yang sudah tidak valid. Ini disebut **dangling pointer**.
+`x` hidup di stack frame milik `buat_angka`. Setelah fungsi selesai, frame tersebut dilepas. Alamat yang dikembalikan menunjuk ke ruang stack yang sudah tidak lagi dimiliki oleh variabel `x`. Pointer seperti ini disebut **dangling pointer**.
 
-Memakai dangling pointer menghasilkan undefined behavior. Kadang program terlihat berjalan benar, kadang crash, kadang data korup. Kasus yang paling sulit dilacak biasanya justru yang terlihat benar cukup lama, lalu rusak saat kondisi berubah.
+Menggunakan dangling pointer menghasilkan **undefined behavior**. Program dapat terlihat berjalan, dapat crash, atau dapat menghasilkan data yang rusak. Perilaku tersebut tidak dapat dijadikan dasar program yang benar.
 
-Compiler dengan `-Wall` biasanya memperingatkan kasus jelas seperti ini:
-
-```text
-warning: function returns address of local variable
-```
-
-Solusi yang benar bisa berupa mengembalikan nilai langsung, atau mengalokasikan data di heap. Kita bahas caranya di Bab 6 dan Bab 9. Untuk sekarang, pegang aturan ini: **jangan mengembalikan alamat variabel lokal.**
+Compiler biasanya memberi peringatan untuk kasus yang jelas jika opsi seperti `-Wall` digunakan. Solusi yang benar adalah mengembalikan nilai secara langsung, mengisi memori milik pemanggil melalui pointer, atau mengalokasikan data di heap jika memang harus bertahan setelah fungsi selesai.
 
 ---
 
-## 4.10 `void`, multiple return, dan scope singkat
+## 4.10 `void`, Return, dan Scope
 
-**Fungsi `void`** tidak mengembalikan nilai. Biasanya dipakai untuk fungsi yang melakukan aksi, misalnya mencetak sesuatu atau mengubah state, bukan menghasilkan nilai.
+Fungsi dengan tipe kembalian `void` tidak mengembalikan nilai. Fungsi seperti ini digunakan ketika tujuan utamanya adalah melakukan aksi, misalnya mencetak output atau mengubah keadaan melalui pointer.
 
 ```c
-void sapa(void) { printf("halo\n"); }
+void sapa(void) {
+    printf("halo\n");
+}
 ```
 
-Pada deklarasi `void sapa(void)`, `void` pertama berarti fungsi tidak punya return value. `void` di dalam parameter berarti fungsi tidak menerima argumen. Ini berbeda dari fungsi yang mengembalikan `int`, `char`, atau tipe lain.
+Satu pernyataan `return` hanya dapat mengembalikan satu nilai. Jika program perlu mengembalikan beberapa data, gunakan pointer, array, atau `struct` sesuai kebutuhan. Pointer dibahas pada Bab 6 dan `struct` dibahas pada Bab 8.
 
-**Satu nilai return saja.** `return` mengembalikan satu nilai. Jika ingin mengembalikan banyak nilai, kamu bisa memakai pointer seperti yang akan dibahas di Bab 6/7, atau `struct` seperti di Bab 8.
+Scope atau lingkup menentukan bagian program yang dapat mengakses sebuah variabel. Variabel yang dideklarasikan di dalam blok `{ }` hanya terlihat di dalam blok tersebut. Variabel lokal fungsi tidak dapat diakses langsung dari fungsi lain karena variabel tersebut berada di stack frame fungsi yang memilikinya.
 
-Pilihan ini bukan hanya soal gaya. Pointer cocok ketika fungsi perlu mengisi beberapa output lewat alamat yang diberikan pemanggil. `struct` cocok ketika beberapa nilai itu memang membentuk satu paket data yang masuk akal dikembalikan bersama.
-
-**Scope (lingkup) variabel.** Variabel yang dideklarasikan di dalam blok `{ }` hanya terlihat di dalam blok itu. Variabel lokal fungsi tidak bisa diakses langsung dari fungsi lain. Ini konsisten dengan fakta bahwa variabel lokal hidup di stack frame fungsi tersebut.
-
-Scope mengatur nama mana yang bisa dipakai oleh kode. Lifetime mengatur berapa lama objeknya hidup di memori. Untuk variabel lokal biasa, keduanya sering terasa berjalan bersama: namanya hanya terlihat di dalam fungsi atau blok, dan memorinya hanya valid selama frame itu masih hidup.
-
-Ada juga variabel `static` lokal yang umurnya sepanjang program walaupun scope-nya tetap lokal. Kita akan membahas storage class seperti ini di Bab 11.
+Ada juga variabel lokal `static`. Scope-nya tetap lokal, tetapi umur datanya sepanjang program berjalan. Topik ini dibahas saat membahas storage class pada Bab 11.
 
 ---
 
-## 4.11 Rangkuman model mental
+## 4.11 Rangkuman Model Mental
 
-1. **C selalu pass by value.** Argumen disalin. Kalau ingin mengubah variabel asli, kirim alamatnya memakai pointer di Bab 6.
-2. **Stack** adalah region memori LIFO untuk pemanggilan fungsi. Di x86-64, stack tumbuh ke bawah, ke arah alamat yang lebih kecil.
-3. Setiap pemanggilan fungsi punya **stack frame** berisi parameter, variabel lokal, saved registers, dan **return address**.
-4. **`call`** menyimpan return address lalu lompat ke fungsi. **`ret`** mengambil return address dan lompat balik. Stack menyimpan jalur pulang.
-5. **Variabel lokal mati saat fungsi return** karena stack frame-nya dibuang. Jangan mengembalikan alamatnya.
-6. **Calling convention (ABI)** adalah kontrak antar fungsi: argumen dikirim lewat register mana, return lewat register mana, dan register mana yang harus dijaga.
-7. **Recursion** bekerja karena tiap level punya frame sendiri. Base case harus ada.
-8. **Stack overflow** terjadi saat stack kepenuhan, biasanya karena rekursi tak terbatas atau variabel lokal raksasa.
-
----
-
-## 4.12 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Jalankan contoh `coba_ubah` dari Bagian 4.2. Konfirmasi bahwa `a` tetap `5`. Lalu jelaskan ke dirimu sendiri, dengan istilah "salinan", kenapa hasilnya begitu.
-2. Tulis fungsi `faktorial` rekursif, lalu compile dengan `gcc -S -O0` dan cari `call faktorial` di assembly-nya. Buktikan bahwa fungsi memang memanggil dirinya sendiri lewat `call`.
-3. Pakai `gdb`: compile dengan `gcc -g`, lalu jalankan `break faktorial`, `run`, dan ketik `backtrace` beberapa kali sambil `continue`. Amati tumpukan frame bertambah. Ini baru perkenalan singkat dengan `gdb`; detailnya ada di Bab 20.
-4. Tulis fungsi rekursif **tanpa** base case, atau dengan base case yang tidak pernah tercapai. Jalankan. Error apa yang muncul? Cek jatah stack-mu dengan `ulimit -s`.
-5. Deklarasikan `int arr[10000000];` sebagai variabel lokal di sebuah fungsi dan jalankan. Apa yang terjadi? Lalu pindahkan ke `malloc` sebagai pemanasan sebelum Bab 9. Apakah hasilnya berubah?
-6. Tulis fungsi yang melakukan `return &x;` dengan `x` sebagai variabel lokal. Compile dengan `-Wall`. Baca persis bunyi warning-nya.
-
-**Pertanyaan refleksi:**
-
-1. Kenapa mengubah parameter di dalam fungsi tidak mengubah variabel asli pemanggil? Jelaskan memakai konsep stack frame.
-2. Apa isi sebuah stack frame? Bagian mana yang paling penting untuk kembali ke pemanggil?
-3. Dengan kata-katamu sendiri, apa yang dilakukan `call` dan `ret` terhadap stack dan Instruction Pointer?
-4. Kenapa recursion butuh base case? Apa hubungannya dengan stack overflow?
-5. Kenapa mengembalikan `&x`, yaitu alamat variabel lokal, berbahaya walaupun kadang program terlihat berjalan?
-6. Kenapa data besar sebaiknya disimpan di heap, bukan stack? Apa konsekuensinya kalau dipaksakan di stack?
-7. Apa gunanya calling convention/ABI, dan kenapa ia membuat library dari pihak berbeda bisa saling dipanggil?
+1. C selalu menggunakan pass by value. Argumen disalin ke parameter fungsi.
+2. Stack adalah region memori untuk pemanggilan fungsi dan bekerja dengan disiplin LIFO.
+3. Setiap pemanggilan fungsi memiliki stack frame sendiri.
+4. Stack frame secara konseptual berisi parameter, variabel lokal, return address, dan register yang perlu disimpan.
+5. Instruksi `call` menyimpan return address dan melompat ke fungsi yang dipanggil.
+6. Instruksi `ret` mengambil return address dan kembali ke pemanggil.
+7. Variabel lokal tidak valid setelah fungsi selesai karena frame-nya sudah dilepas.
+8. Calling convention atau ABI menentukan aturan pemanggilan fungsi pada level biner.
+9. Rekursi bekerja karena setiap level pemanggilan fungsi memiliki frame sendiri.
+10. Stack overflow terjadi ketika penggunaan stack melebihi batas yang tersedia.
 
 ---
 
-Kita sekarang punya fondasi tentang data, eksekusi, dan pemanggilan fungsi. Di Bab 5, kita mulai masuk ke inti C berikutnya: **arrays & strings**. Kita akan melihat bagaimana banyak data ditata berdampingan di memori, kenapa `array[i]` berhubungan dengan aritmetika alamat, dan kenapa string di C adalah array karakter yang diakhiri nol.
+## 4.12 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Jalankan contoh `coba_ubah` pada Bagian 4.2. Pastikan nilai `a` tetap `5`, lalu jelaskan alasannya dengan konsep salinan.
+2. Tulis fungsi `faktorial` rekursif. Compile dengan `gcc -S -O0`, lalu cari instruksi `call faktorial` pada assembly yang dihasilkan.
+3. Gunakan `gdb` dengan program yang dikompilasi memakai `gcc -g`. Pasang breakpoint pada `faktorial`, jalankan program, lalu gunakan `backtrace` untuk melihat stack frame yang aktif.
+4. Tulis fungsi rekursif tanpa base case. Jalankan program dan amati error yang muncul. Periksa jatah stack dengan `ulimit -s`.
+5. Deklarasikan `int arr[10000000];` sebagai variabel lokal di sebuah fungsi. Jalankan program, lalu bandingkan dengan versi yang menggunakan `malloc`.
+6. Tulis fungsi yang mengembalikan `&x` ketika `x` adalah variabel lokal. Compile dengan `-Wall` dan baca peringatan dari compiler.
+
+### Pertanyaan Refleksi
+
+1. Mengapa mengubah parameter di dalam fungsi tidak mengubah variabel asli milik pemanggil?
+2. Apa saja bagian penting dalam stack frame?
+3. Bagian mana dari stack frame yang menentukan lokasi eksekusi setelah fungsi selesai?
+4. Apa yang dilakukan `call` terhadap stack dan Instruction Pointer?
+5. Apa yang dilakukan `ret` terhadap stack dan Instruction Pointer?
+6. Mengapa rekursi membutuhkan base case?
+7. Mengapa mengembalikan alamat variabel lokal berbahaya walaupun program kadang terlihat berjalan?
+8. Mengapa data besar sebaiknya dialokasikan di heap, bukan di stack?
+9. Apa fungsi calling convention atau ABI dalam kerja sama antara kode program dan library?
+
+---
+
+Bab ini membangun fondasi untuk memahami fungsi pada level mesin. Materi yang dibahas mencakup pass by value, stack frame, return address, calling convention, rekursi, stack overflow, dan perbedaan awal antara stack dan heap.
+
+Pada Bab 5, pembahasan berlanjut ke array dan string. Topik tersebut menjelaskan bagaimana banyak data disusun berurutan di memori, mengapa `array[i]` berhubungan langsung dengan aritmetika alamat, dan mengapa string di C direpresentasikan sebagai array karakter yang diakhiri byte nol.
+

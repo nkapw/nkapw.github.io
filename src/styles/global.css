@@ -41,9 +41,23 @@ pre {
   padding: 0 0.2em;
 }
 
+/* Table of contents: h3 entries sit under their h2 parent. */
+.toc-list,
+.toc-sublist {
+  padding-left: 1.25em;
+}
+
+.toc-list li {
+  margin: 0.25em 0;
+}
+
+.toc-sublist {
+  margin: 0.25em 0 0.5em;
+  font-size: 0.95em;
+}
+
 /* Blockquotes use the browser's default indentation; nothing fancy. */
 
-/* If the OS prefers dark mode, do a plain inversion. No toggle, no theming. */
 @media print {
   /* Hide navigation chrome — just the content on paper. */
   header, footer, nav, hr { display: none; }
@@ -55,18 +69,29 @@ pre {
 
 @media (prefers-color-scheme: dark) {
   body {
-    color: #fff;
-    background: #000;
+    color: #d8d3c8;
+    background: #111315;
   }
   pre,
   :not(pre) > code {
-    background: #1a1a1a;
+    background: #1c1f22;
   }
-  /* Keep links legible on black. */
+  .astro-code {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+  }
+  .astro-code span {
+    color: var(--shiki-dark) !important;
+  }
   a:link {
-    color: #6cf;
+    color: #8ab4f8;
   }
   a:visited {
-    color: #c9f;
+    color: #c58af9;
+  }
+  small,
+  footer,
+  nav {
+    color: #aaa59c;
   }
 }

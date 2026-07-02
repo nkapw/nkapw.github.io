@@ -1,176 +1,203 @@
 ---
-title: "Bab 18 — Networking Level Rendah (Sockets)"
-description: "Kita masuk BAGIAN V. Sampai sekarang program kita hidup dalam satu mesin. Sekarang kita keluar dari batas itu: bagaimana program berbicara dengan program lain lewat..."
-tags: [c, system-programming]
+title: "Bab 18 - Networking Level Rendah dengan Socket"
+description: "Pada bagian sebelumnya, program yang dibahas berjalan terutama di dalam satu mesin. Bab ini memperluas pembahasan ke komunikasi antarprogram melalui jaringan...."
+tags: [c, systems-programming]
 order: 18
-updated: 2026-06-20
+updated: 2026-07-02
 ---
+Pada bagian sebelumnya, program yang dibahas berjalan terutama di dalam satu mesin. Bab ini memperluas pembahasan ke komunikasi antarprogram melalui jaringan. Mekanisme ini menjadi dasar bagi web server, API, database jarak jauh, layanan internal, dan berbagai sistem terdistribusi.
 
-> "Socket itu file descriptor yang ujung satunya bisa berada di komputer lain. Kamu `write` ke sana, byte-nya dikirim ke mesin tujuan. Kamu `read` darinya, byte dari mesin lain masuk ke programmu."
+Di UNIX dan Linux, socket direpresentasikan sebagai **file descriptor**. Setelah koneksi terbentuk, program dapat menggunakan `read` dan `write` pada socket seperti pada file atau pipe. Perbedaannya terletak pada proses pembuatan koneksi, pemilihan alamat, port, dan protokol jaringan.
 
-Kita masuk BAGIAN V. Sampai sekarang program kita hidup dalam satu mesin. Sekarang kita keluar dari batas itu: bagaimana program berbicara dengan program lain **lewat jaringan**, baik di mesin yang sama maupun di mesin lain. Konsep ini menjadi dasar web, email, game online, API, dan database jarak jauh.
-
-Banyak fondasinya sudah kamu punya. Ingat "everything is a file" dari Bab 12? **Socket adalah file descriptor**. Begitu koneksi terbentuk, kamu bisa `read`/`write` ke socket seperti ke file atau pipe. Bagian barunya adalah cara *membentuk* koneksi itu. Bab ini menyatukan file descriptor (Bab 12), endianness (Bab 2), dan model client-server.
-
----
-
-## 18.1 Sedikit konteks: bagaimana jaringan bekerja (secukupnya)
-
-Kamu tidak perlu menjadi ahli jaringan untuk memakai socket, tetapi beberapa konsep dasar perlu jelas lebih dulu.
-
-**IP address** adalah alamat sebuah mesin di jaringan, misalnya `192.168.1.10` untuk IPv4 atau `::1` untuk IPv6. Anggap saja seperti alamat rumah. `127.0.0.1` (alias `localhost`) adalah alamat khusus yang berarti "mesin ini sendiri".
-
-**Port** adalah angka (0-65535) yang mengidentifikasi *aplikasi/layanan* tertentu di dalam satu mesin. Satu mesin bisa menjalankan banyak layanan; port membedakannya. Misalnya, web server biasanya memakai port 80 (HTTP) atau 443 (HTTPS), sedangkan SSH memakai port 22. Kalau IP address adalah alamat gedung apartemen, port adalah nomor unit di dalamnya. Untuk mengirim data ke layanan tertentu, kamu butuh keduanya: IP + port.
-
-**Protokol** adalah aturan komunikasi. Dua protokol fundamental yang perlu kamu kenal adalah TCP dan UDP.
-
-| | **TCP** | **UDP** |
-|---|---------|---------|
-| Jenis | connection-oriented (ada "sambungan") | connectionless (kirim lepas) |
-| Keandalan | **andal**: data dijamin sampai, urut, tanpa duplikat | **tak dijamin**: bisa hilang, tak urut |
-| Analogi | telepon (sambung dulu, bicara, tutup) | kartu pos (kirim, harap sampai) |
-| Overhead | lebih tinggi | rendah, cepat |
-| Untuk | web, email, file transfer, SSH | streaming, game, DNS, VoIP |
-
-TCP menjamin bahwa kalau kamu mengirim "ABCD", penerima mendapatkan "ABCD" secara utuh, berurutan, dan tanpa duplikasi. Di baliknya, TCP mengurus retransmisi paket yang hilang, pengurutan ulang, dan detail lain yang cukup kompleks tetapi tersembunyi dari programmu. UDP tidak memberi jaminan itu; sebagai gantinya, overhead-nya lebih rendah. Bab ini fokus ke TCP karena paling umum dan paling instruktif untuk mempelajari socket.
+Bab ini menghubungkan beberapa konsep sebelumnya, terutama file descriptor dari Bab 12, endianness dari Bab 2, layout struct dari Bab 8, error handling dari Bab 13, signal dari Bab 15, serta thread dan proses dari Bab 14 sampai Bab 17.
 
 ---
 
-## 18.2 Socket = endpoint komunikasi (yang berupa fd)
+## 18.1 Konsep Dasar Jaringan
 
-**Socket** adalah satu "ujung" (endpoint) dari saluran komunikasi dua arah. Untuk membuatnya, panggil `socket()`:
+Beberapa konsep dasar perlu dipahami sebelum memakai socket.
+
+**IP address** adalah alamat sebuah mesin di jaringan. Contohnya adalah `192.168.1.10` untuk IPv4. Alamat `127.0.0.1`, yang juga dikenal sebagai `localhost`, merujuk ke mesin yang sedang menjalankan program itu sendiri.
+
+**Port** adalah angka dari 0 sampai 65535 yang mengidentifikasi layanan tertentu pada sebuah mesin. Satu mesin dapat menjalankan banyak layanan sekaligus, dan port membedakan layanan tersebut. Web server biasanya memakai port 80 untuk HTTP atau 443 untuk HTTPS, sedangkan SSH memakai port 22.
+
+**Protokol** adalah aturan komunikasi yang digunakan oleh dua program. Dua protokol transport yang umum adalah TCP dan UDP.
+
+| Aspek | **TCP** | **UDP** |
+|-------|---------|---------|
+| Model | Berbasis koneksi | Tanpa koneksi tetap |
+| Keandalan | Data dijamin sampai, berurutan, dan tanpa duplikasi | Data dapat hilang, datang tidak berurutan, atau terduplikasi |
+| Overhead | Lebih tinggi | Lebih rendah |
+| Kegunaan umum | Web, email, file transfer, SSH | DNS, streaming, game, VoIP |
+
+TCP mengurus retransmisi paket yang hilang, pengurutan ulang, dan kontrol aliran. Dengan TCP, program melihat data sebagai aliran byte yang andal. UDP memberi kontrol lebih besar kepada aplikasi, tetapi aplikasi harus menangani sendiri kehilangan paket, pengurutan, dan duplikasi bila hal itu penting.
+
+Bab ini berfokus pada TCP karena lebih umum digunakan untuk komunikasi yang membutuhkan keandalan.
+
+---
+
+## 18.2 Socket sebagai Endpoint Komunikasi
+
+**Socket** adalah endpoint komunikasi dua arah. Pada Linux dan UNIX, socket dibuat dengan fungsi `socket`.
 
 ```c
 #include <sys/socket.h>
+
 int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-//                   ^^^^^^^  ^^^^^^^^^^^
-//                   IPv4     TCP (stream)
 ```
 
-`socket()` mengembalikan sebuah **file descriptor** (Bab 12), sama jenisnya dengan fd dari `open`. Argumennya adalah:
-- **`AF_INET`** — address family IPv4 (`AF_INET6` untuk IPv6).
-- **`SOCK_STREAM`** — TCP (aliran byte andal). `SOCK_DGRAM` untuk UDP.
-- Return `-1` kalau gagal (konvensi syscall, Bab 13).
+`socket()` mengembalikan file descriptor, sama seperti `open()` saat membuka file. Nilai `-1` menunjukkan kegagalan.
 
-Inti model mentalnya: **setelah koneksi terbentuk, socket itu fd biasa.** Kamu memakai `read(sockfd, ...)` dan `write(sockfd, ...)` (atau `recv`/`send` yang mirip) seperti pada file atau pipe. Abstraksi UNIX menyamakan jaringan, file, dan pipe sebagai aliran byte lewat fd. Yang membedakan socket adalah cara menyiapkan dan menyambungkan endpoint-nya.
+Argumen penting pada contoh tersebut adalah sebagai berikut.
+
+- **`AF_INET`** memilih address family IPv4. Untuk IPv6, gunakan `AF_INET6`.
+- **`SOCK_STREAM`** memilih TCP sebagai aliran byte andal. Untuk UDP, gunakan `SOCK_DGRAM`.
+- **`0`** meminta sistem memilih protokol default yang sesuai dengan address family dan tipe socket.
+
+Setelah koneksi terbentuk, socket dapat digunakan dengan `read(sockfd, ...)` dan `write(sockfd, ...)`. Fungsi `recv` dan `send` juga tersedia untuk kebutuhan socket yang lebih spesifik. Abstraksi file descriptor membuat operasi I/O pada jaringan terasa dekat dengan operasi I/O pada file dan pipe.
 
 ---
 
-## 18.3 Byte order: endianness datang menagih (Bab 2)
+## 18.3 Byte Order dan Endianness
 
-Sebelum masuk ke kode, ada satu jebakan penting dari Bab 2: **endianness**. Urutan byte di memori bisa berbeda antar mesin (little endian vs big endian). Dalam jaringan, mesin pengirim dan penerima bisa memiliki endianness yang berbeda. Kalau kamu mengirim angka port `8080` apa adanya, mesin lain bisa membacanya sebagai angka yang berbeda.
+Mesin yang berbeda dapat menyimpan byte dalam urutan yang berbeda. Perbedaan ini disebut **endianness**. Dalam komunikasi jaringan, angka seperti port dan alamat IP harus dikirim dalam format yang disepakati.
 
-Solusinya, jaringan memakai standar baku: **"network byte order" = big-endian.** Sebelum mengirim angka seperti port atau IP, konversi dari host byte order ke network byte order. Saat menerima, lakukan konversi sebaliknya.
+Standar jaringan menggunakan **network byte order**, yaitu big-endian. Karena itu, program perlu mengonversi angka dari host byte order ke network byte order sebelum mengirimnya, lalu mengonversinya kembali saat menerima.
 
 ```c
 #include <arpa/inet.h>
-uint16_t htons(uint16_t x);   // Host TO Network Short (16-bit, mis. port)
-uint32_t htonl(uint32_t x);   // Host TO Network Long  (32-bit, mis. IP)
-uint16_t ntohs(uint16_t x);   // Network TO Host Short
-uint32_t ntohl(uint32_t x);   // Network TO Host Long
+
+uint16_t htons(uint16_t x);
+uint32_t htonl(uint32_t x);
+uint16_t ntohs(uint16_t x);
+uint32_t ntohl(uint32_t x);
 ```
 
-Kamu akan sering melihat `htons(8080)` di kode socket. Fungsi itu mengubah port ke network byte order. Kalau konversi ini lupa dilakukan, koneksi bisa diarahkan ke port yang salah dan bug-nya terlihat membingungkan. Di sini endianness dari Bab 2 muncul sebagai kebutuhan praktis, bukan sekadar detail representasi memori.
+`htons` berarti host to network short dan biasanya dipakai untuk port. `htonl` berarti host to network long dan digunakan untuk nilai 32 bit seperti IPv4. Fungsi `ntohs` dan `ntohl` melakukan konversi sebaliknya.
+
+Pada kode socket, port hampir selalu ditulis dengan `htons(port)`. Jika konversi ini dilupakan, program dapat mencoba memakai port yang salah pada mesin dengan endianness tertentu.
 
 ---
 
-## 18.4 Model client-server
+## 18.4 Model Client Server
 
-Komunikasi TCP punya dua peran asimetris:
+Komunikasi TCP melibatkan dua peran.
 
-- **Server** — menunggu (listen) di sebuah port dan menerima koneksi yang masuk. Perannya pasif, seperti restoran yang buka dan menunggu pelanggan.
-- **Client** — memulai koneksi ke server pada IP:port tertentu. Perannya aktif, seperti pelanggan yang datang ke restoran.
+- **Server** menunggu koneksi masuk pada alamat dan port tertentu.
+- **Client** memulai koneksi ke alamat dan port server.
 
-Tiap peran punya urutan syscall yang berbeda:
+Urutan syscall pada server dan client berbeda.
 
-```
+```text
 SERVER                          CLIENT
 socket()    buat socket         socket()    buat socket
 bind()      ikat ke port
-listen()    mulai mendengar
-accept()    <--- tunggu ------  connect()   sambung ke server
-        (koneksi terbentuk)
-read()/write() <--- data ---->  write()/read()
-close()                         close()
+listen()    mulai menerima koneksi
+accept()    menunggu koneksi    connect()   menyambung ke server
+
+koneksi terbentuk
+
+read dan write                  write dan read
+close                           close
 ```
 
-Mari bedah syscall di sisi server, karena urutannya lebih banyak.
+Pada server, beberapa syscall utama yang digunakan adalah `bind`, `listen`, dan `accept`.
 
-- **`bind(sockfd, addr, len)`** mengikat socket ke alamat dan port tertentu di mesin lokal, misalnya "aku akan melayani di port 8080". Di sinilah `htons(port)` dipakai.
-- **`listen(sockfd, backlog)`** menandai socket sebagai pasif/listening, siap menerima koneksi. `backlog` adalah panjang antrian koneksi yang menunggu di-accept.
-- **`accept(sockfd, ...)`** **memblokir** sampai ada client connect, lalu mengembalikan **fd baru** khusus untuk koneksi itu. Penting: `accept` mengembalikan fd terpisah; socket asli (`sockfd`) tetap mendengar untuk koneksi berikutnya. Inilah cara server melayani banyak client.
+- **`bind(sockfd, addr, len)`** mengikat socket ke alamat dan port lokal tertentu.
+- **`listen(sockfd, backlog)`** menandai socket sebagai socket pasif yang siap menerima koneksi. Nilai `backlog` menentukan ukuran antrian koneksi yang menunggu.
+- **`accept(sockfd, ...)`** memblokir eksekusi sampai ada client yang terhubung, lalu mengembalikan file descriptor baru untuk koneksi tersebut.
 
-Client lebih sederhana: `socket()` lalu `connect(sockfd, server_addr, len)`, yang memblokir sampai tersambung atau gagal.
+File descriptor yang dikembalikan oleh `accept` digunakan untuk komunikasi dengan satu client. Socket asli tetap berada dalam mode listening dan dapat menerima koneksi berikutnya.
+
+Pada client, urutannya lebih pendek. Program membuat socket dengan `socket()`, lalu memanggil `connect(sockfd, server_addr, len)` untuk menyambung ke server.
 
 ---
 
-## 18.5 Server TCP minimal
+## 18.5 Server TCP Minimal
 
-Berikut contoh lengkap server yang mengirim satu pesan ke tiap client lalu menutup koneksi. Kodenya agak panjang karena API networking memang verbose, tetapi tiap langkah punya peran yang jelas.
+Contoh berikut adalah server TCP sederhana yang mengirim satu pesan ke setiap client, lalu menutup koneksi tersebut.
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <arpa/inet.h>      // sockaddr_in, htons, inet_ntop
+#include <arpa/inet.h>
 
 int main(void) {
-    // 1. Buat socket (TCP/IPv4)
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1) { perror("socket"); return 1; }
+    if (server_fd == -1) {
+        perror("socket");
+        return 1;
+    }
 
-    // (opsional tapi umum) izinkan reuse port cepat setelah restart
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    // 2. Siapkan alamat: port 8080, terima dari semua interface
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;       // semua IP lokal
-    addr.sin_port = htons(8080);             // <- network byte order (Bab 2!)
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
 
-    // 3. Ikat socket ke port itu
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        perror("bind"); return 1;
+        perror("bind");
+        return 1;
     }
 
-    // 4. Mulai mendengar
-    if (listen(server_fd, 5) == -1) { perror("listen"); return 1; }
-    printf("Server mendengar di port 8080...\n");
+    if (listen(server_fd, 5) == -1) {
+        perror("listen");
+        return 1;
+    }
 
-    // 5. Loop melayani client
+    printf("Server mendengar di port 8080\n");
+
     while (1) {
         struct sockaddr_in client;
         socklen_t clen = sizeof(client);
         int client_fd = accept(server_fd, (struct sockaddr *)&client, &clen);
-        if (client_fd == -1) { perror("accept"); continue; }
 
-        // tampilkan IP client
+        if (client_fd == -1) {
+            perror("accept");
+            continue;
+        }
+
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client.sin_addr, ip, sizeof(ip));
         printf("Client terhubung dari %s\n", ip);
 
-        // 6. Kirim pesan — write ke fd, seperti file biasa!
-        const char *pesan = "Halo dari server!\n";
+        const char *pesan = "Halo dari server\n";
         write(client_fd, pesan, strlen(pesan));
 
-        close(client_fd);    // tutup koneksi ini; server_fd tetap mendengar
+        close(client_fd);
     }
+
     close(server_fd);
     return 0;
 }
 ```
 
-Perhatikan langkah 6: `write(client_fd, ...)` **sama seperti menulis ke file** (Bab 12). Itulah inti "socket = fd". Semua kerumitan di langkah 1-5 adalah untuk *membentuk* koneksi; setelah koneksi terbentuk, operasi I/O-nya sudah familiar.
+Langkah pentingnya adalah sebagai berikut.
 
-`struct sockaddr_in` adalah struct (Bab 8) yang memuat alamat: family, IP (`sin_addr`), dan port (`sin_port`). Layout-nya baku. Ini berkaitan dengan pembahasan Bab 8 tentang pentingnya memory layout struct untuk protokol.
+1. `socket` membuat socket TCP IPv4.
+2. `setsockopt` dengan `SO_REUSEADDR` membantu server dapat dijalankan ulang tanpa menunggu port benar-benar bebas.
+3. `bind` mengikat socket ke port 8080 pada semua interface lokal.
+4. `listen` membuat socket siap menerima koneksi.
+5. `accept` menunggu koneksi masuk dan menghasilkan file descriptor baru.
+6. `write` mengirim byte ke client melalui file descriptor hasil `accept`.
 
-Tes server ini tanpa menulis client: jalankan, lalu di terminal lain ketik `nc localhost 8080` (netcat) atau `curl localhost:8080` — kamu akan lihat pesannya.
+`struct sockaddr_in` memuat address family, alamat IP, dan port. Field `sin_port` harus diisi dengan `htons(8080)` agar memakai network byte order.
+
+Server dapat diuji dengan menjalankannya di satu terminal, lalu menjalankan perintah berikut di terminal lain.
+
+```sh
+nc localhost 8080
+```
 
 ---
 
-## 18.6 Client TCP minimal
+## 18.6 Client TCP Minimal
+
+Contoh berikut adalah client TCP sederhana yang terhubung ke server pada `127.0.0.1` dan port 8080.
 
 ```c
 #include <stdio.h>
@@ -179,27 +206,27 @@ Tes server ini tanpa menulis client: jalankan, lalu di terminal lain ketik `nc l
 #include <arpa/inet.h>
 
 int main(void) {
-    // 1. Buat socket
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) { perror("socket"); return 1; }
-
-    // 2. Siapkan alamat server: localhost:8080
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(8080);                       // network byte order
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);   // ubah string IP -> biner
-
-    // 3. Sambung ke server
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        perror("connect"); return 1;
+    if (sock == -1) {
+        perror("socket");
+        return 1;
     }
 
-    // 4. Baca pesan dari server — read dari fd, seperti file biasa!
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        perror("connect");
+        return 1;
+    }
+
     char buf[256];
     ssize_t n = read(sock, buf, sizeof(buf) - 1);
     if (n > 0) {
-        buf[n] = '\0';                  // null-terminate (Bab 5!) sebelum cetak sebagai string
-        printf("Server berkata: %s", buf);
+        buf[n] = '\0';
+        printf("Server berkata %s", buf);
     }
 
     close(sock);
@@ -207,87 +234,99 @@ int main(void) {
 }
 ```
 
-Jalankan server dulu (Section 18.5), lalu jalankan client ini. Client akan mencetak pesan dari server. Dengan dua program kecil ini, kamu sudah melihat komunikasi jaringan paling dasar: satu program menunggu koneksi, program lain menyambung, lalu byte dikirim lewat socket.
+Jalankan server terlebih dahulu, lalu jalankan client. Client akan membaca pesan dari server melalui socket.
 
-Perhatikan langkah 4: `read(sock, ...)` lalu `buf[n] = '\0'`. Kita harus null-terminate sendiri (Bab 5) karena data jaringan adalah **byte mentah**; tidak ada `'\0'` otomatis. `inet_pton` (presentation to network) mengubah string IP `"127.0.0.1"` menjadi bentuk biner, sedangkan `inet_ntop` (Section 18.5) melakukan kebalikannya.
+Data jaringan adalah byte mentah. Jika data akan diperlakukan sebagai string C, program harus menambahkan karakter null secara manual. Pada contoh di atas, hal itu dilakukan dengan `buf[n] = '\0'` sebelum isi buffer dicetak.
+
+`inet_pton` mengubah alamat IP dalam bentuk teks menjadi bentuk biner yang dapat disimpan di `sin_addr`. Fungsi `inet_ntop` melakukan konversi sebaliknya dan digunakan pada contoh server.
 
 ---
 
-## 18.7 Jebakan penting: TCP itu STREAM, bukan pesan
+## 18.7 TCP adalah Stream, Bukan Pesan
 
-Ini salah satu kesalahpahaman paling umum saat mulai belajar networking, dan ia menghubungkan banyak konsep dari bab sebelumnya.
+TCP menyajikan data sebagai aliran byte. Satu pemanggilan `write` pada pengirim tidak selalu berpasangan dengan satu pemanggilan `read` pada penerima.
 
-> **TCP adalah aliran byte (stream), BUKAN aliran pesan.** Satu `write` di pengirim **tidak** sama dengan satu `read` di penerima. Byte bisa "menyatu" atau "terpecah" di jalan.
+Jika pengirim memanggil `write` dua kali secara berurutan, penerima dapat membacanya sebagai satu potongan data, beberapa potongan data, atau potongan dengan batas yang berbeda. TCP hanya menjamin urutan byte dan keandalan pengiriman, bukan batas pesan aplikasi.
 
-Kalau pengirim melakukan `write("Halo")` lalu `write("Dunia")`, penerima mungkin membacanya sebagai satu `read` -> "HaloDunia", atau terpecah menjadi "Hal" lalu "oDunia", tergantung kondisi jaringan dan buffer. TCP hanya menjamin **urutan dan kelengkapan byte**, bukan batas pesan.
+Konsekuensi praktisnya adalah sebagai berikut.
 
-Konsekuensinya:
-1. **`read` bisa mengembalikan lebih sedikit dari yang kamu minta** (partial read; ingat partial write di Bab 12). Kamu harus mengulang `read` dalam loop sampai mendapat semua byte yang dibutuhkan.
-2. **Kamu butuh protokol aplikasi sendiri** untuk menandai batas pesan: entah dengan delimiter (mis. `\n` seperti HTTP), atau dengan mengirim panjang pesan dulu (length-prefix). Ini sebabnya HTTP, dll punya format yang jelas.
+1. `read` dapat mengembalikan jumlah byte yang lebih sedikit dari yang diminta.
+2. Aplikasi perlu menentukan format pesan sendiri, misalnya dengan delimiter seperti newline atau dengan length prefix.
+
+Pola berikut menunjukkan cara membaca sampai jumlah byte tertentu terkumpul.
 
 ```c
-// pola membaca yang BENAR: loop sampai cukup / EOF
 ssize_t total = 0;
+
 while (total < perlu) {
     ssize_t n = read(sock, buf + total, perlu - total);
-    if (n <= 0) break;        // 0 = koneksi ditutup, -1 = error
+    if (n <= 0)
+        break;
     total += n;
 }
 ```
 
-`read` mengembalikan `0` saat koneksi ditutup oleh ujung lain (EOF), sama seperti pipe (Bab 16) dan file (Bab 12). Sekali lagi, abstraksi fd menyatukan semuanya.
+Nilai `0` dari `read` berarti ujung koneksi lain telah menutup koneksi. Nilai `-1` berarti terjadi error dan harus diperiksa melalui `errno`.
 
-> **Jebakan tambahan:** menulis ke socket yang ujungnya sudah ditutup memicu **`SIGPIPE`** (Bab 15), yang default-nya mematikan program. Server jaringan biasanya mengabaikan `SIGPIPE` (atau memakai flag `MSG_NOSIGNAL`) dan menangani error `write` lewat return value. Ini contoh bagaimana signal, error handling, dan socket saling terkait.
-
----
-
-## 18.8 Melayani banyak client (gambaran)
-
-Server di Section 18.5 melayani satu client pada satu waktu (`accept` -> layani -> `accept` lagi). Untuk melayani banyak client **bersamaan**, ada beberapa pendekatan. Semuanya memakai konsep dari bab-bab sebelumnya.
-
-1. **Satu proses/thread per client** — setelah `accept`, `fork` (Bab 14) atau buat thread (Bab 17) untuk menangani client itu, sementara loop utama lanjut `accept` client berikutnya. Sederhana, tapi boros kalau client banyak (ribuan thread).
-2. **I/O multiplexing** (`select`/`poll`/`epoll`) — satu thread mengawasi banyak fd sekaligus, bereaksi ke yang punya data siap. `epoll` (Linux) adalah fondasi server berperforma tinggi (nginx, Redis) yang menangani puluhan ribu koneksi dengan sedikit thread. Ini event-driven model.
-
-Detail `epoll` di luar cakupan bab ini, tetapi fondasinya sudah mulai terlihat: fd, non-blocking I/O, dan event loop. Konsep ini menjadi jembatan ke high-performance networking.
+Hal lain yang perlu diperhatikan adalah `SIGPIPE`. Menulis ke socket yang sudah ditutup oleh ujung lain dapat memicu `SIGPIPE`, yang secara default menghentikan proses. Server jaringan biasanya mengabaikan `SIGPIPE` atau memakai `MSG_NOSIGNAL`, lalu menangani kegagalan melalui nilai balik `write` atau `send`.
 
 ---
 
-## 18.9 Rangkuman model mental
+## 18.8 Melayani Banyak Client
 
-1. **Socket = file descriptor** (Bab 12) untuk komunikasi jaringan. Setelah koneksi terbentuk, `read`/`write` bekerja seperti pada file atau pipe; abstraksi UNIX menyatukan semuanya.
-2. **IP + port** mengidentifikasi layanan (gedung + nomor unit). **TCP** andal dan berurutan (telepon); **UDP** cepat tetapi tidak dijamin (kartu pos).
-3. **Network byte order = big-endian**; pakai `htons`/`htonl` saat mengirim angka (port/IP), `ntohs`/`ntohl` saat menerima. Endianness dari Bab 2 dipakai langsung di sini.
-4. **Server**: `socket` -> `bind` -> `listen` -> `accept` (return fd baru per koneksi). **Client**: `socket` -> `connect`. Setelah itu keduanya `read`/`write` -> `close`.
-5. **TCP itu STREAM, bukan pesan**: satu `write` ≠ satu `read`; bisa partial/menyatu. Kamu butuh loop baca & protokol batas-pesan sendiri (delimiter / length-prefix). `read` return `0` = koneksi ditutup (EOF).
-6. Banyak client: thread/proses per client (Bab 14/17) atau I/O multiplexing (`epoll`).
-7. Networking menyatukan banyak bab: fd (12), endianness (2), struct layout (8), signal/`SIGPIPE` (15), error handling (13), partial I/O (12).
+Server pada bagian 18.5 melayani satu client pada satu waktu. Setelah satu koneksi diterima, server mengirim pesan, menutup koneksi, lalu kembali ke `accept`.
 
----
+Untuk melayani banyak client secara bersamaan, ada beberapa pendekatan umum.
 
-## 18.10 Latihan & Pertanyaan Refleksi
+1. **Satu proses atau thread per client**. Setelah `accept`, server membuat proses baru dengan `fork` atau thread baru dengan `pthread_create` untuk menangani client tersebut. Loop utama dapat kembali ke `accept` untuk menerima client berikutnya. Pendekatan ini mudah dipahami, tetapi dapat boros resource ketika jumlah client sangat besar.
+2. **I/O multiplexing**. Fungsi seperti `select`, `poll`, atau `epoll` memungkinkan satu thread memantau banyak file descriptor sekaligus. Model ini banyak dipakai pada server berperforma tinggi karena dapat menangani banyak koneksi dengan jumlah thread yang lebih sedikit.
 
-**Latihan praktik:**
-
-1. Jalankan server minimal (Section 18.5). Tanpa menulis client, tes dengan `nc localhost 8080` atau `curl localhost:8080`. Apakah pesan muncul?
-2. Tulis client minimal (Section 18.6) dan hubungkan ke server-mu. Buktikan dua program berkomunikasi. Lalu jalankan keduanya di... ya, satu mesin dulu (localhost).
-3. Modifikasi server agar **membaca** pesan dari client (bukan cuma mengirim), lalu memantulkannya kembali (echo server). Modifikasi client untuk mengirim string dan mencetak balasannya.
-4. Demonstrasikan endianness: cetak `htons(8080)` dan `8080`. Apakah berbeda? (Di mesin little-endian, ya.) Jelaskan kenapa.
-5. Demonstrasikan "TCP itu stream": di client, kirim dua `write` terpisah cepat (`write(sock,"AAA",3); write(sock,"BBB",3);`). Di server, baca dengan satu `read` — apakah kamu dapat "AAABBB" sekaligus? 
-6. Tangani partial read dengan benar: tulis loop `read` (Section 18.7) yang membaca tepat N byte. Uji dengan mengirim data lebih besar dari satu paket.
-7. (Lanjutan) Buat server yang melayani banyak client dengan `fork` (Bab 14) atau thread (Bab 17) per koneksi. Hubungkan beberapa client sekaligus.
-
-**Pertanyaan refleksi:**
-
-1. Kenapa socket disebut "cuma file descriptor"? Bagian mana dari pemrograman socket yang benar-benar baru, dan bagian mana yang sudah kamu kenal?
-2. Apa beda IP address dan port? Pakai analogi sendiri.
-3. Kapan kamu memilih TCP, kapan UDP? Beri contoh aplikasi masing-masing.
-4. Kenapa `htons`/`htonl` perlu? Hubungkan dengan endianness dari Bab 2.
-5. Jelaskan urutan syscall server vs client. Kenapa `accept` mengembalikan fd baru, bukan memakai socket yang sudah ada?
-6. Apa maksud "TCP itu stream, bukan pesan"? Apa dua konsekuensi praktisnya bagi cara kamu menulis kode baca?
-7. Sebutkan dua cara server melayani banyak client bersamaan, dan kaitkan masing-masing dengan bab sebelumnya.
+Pembahasan detail `epoll` berada di luar cakupan bab ini. Yang penting adalah memahami bahwa server jaringan yang melayani banyak client tetap dibangun di atas konsep file descriptor, blocking dan non-blocking I/O, serta event loop.
 
 ---
 
-Kita sudah keluar dari satu mesin dan melihat bagaimana program berkomunikasi lewat socket. Sepanjang buku ini, kita juga terus menyebut `read`, `write`, `fork`, `open`, dan `socket` sebagai syscall, yaitu cara program memanggil kernel.
+## 18.9 Rangkuman Model Mental
 
-Di **Bab 19**, kita melihat apa yang sebenarnya terjadi saat syscall dipanggil: perbedaan **user space vs kernel space**, mekanisme **mode switch**, dan peran libc di balik fungsi seperti `printf`.
+1. **Socket** adalah file descriptor untuk komunikasi jaringan.
+2. Setelah koneksi terbentuk, `read` dan `write` pada socket bekerja seperti operasi I/O pada file descriptor lain.
+3. **IP address** mengidentifikasi mesin, sedangkan **port** mengidentifikasi layanan pada mesin tersebut.
+4. **TCP** memberi aliran byte yang andal dan berurutan, sedangkan **UDP** lebih ringan tetapi tidak memberi jaminan pengiriman.
+5. **Network byte order** memakai big-endian. Gunakan `htons`, `htonl`, `ntohs`, dan `ntohl` untuk konversi angka yang dikirim melalui jaringan.
+6. Server TCP memakai urutan `socket`, `bind`, `listen`, dan `accept`.
+7. Client TCP memakai urutan `socket` dan `connect`.
+8. `accept` mengembalikan file descriptor baru untuk koneksi client, sedangkan socket listening tetap dipakai untuk menerima koneksi berikutnya.
+9. TCP adalah stream. Program tidak boleh menganggap satu `write` pasti diterima sebagai satu `read`.
+10. Server multi-client dapat dibuat dengan proses, thread, atau I/O multiplexing.
+
+---
+
+## 18.10 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Jalankan server minimal dari bagian 18.5. Uji dengan `nc localhost 8080` dan pastikan pesan dari server muncul.
+2. Tulis client minimal dari bagian 18.6 dan hubungkan ke server. Pastikan dua program dapat berkomunikasi.
+3. Modifikasi server agar membaca pesan dari client, lalu mengirimkan kembali pesan yang sama sebagai echo server.
+4. Modifikasi client agar mengirim string ke server dan mencetak balasan dari server.
+5. Cetak hasil `htons(8080)` dan nilai `8080`. Jelaskan mengapa nilainya dapat berbeda pada mesin little-endian.
+6. Demonstrasikan sifat TCP sebagai stream dengan mengirim dua `write` berurutan dari client, lalu membaca data di server dengan satu `read`.
+7. Tulis fungsi pembacaan yang mengulang `read` sampai tepat N byte terkumpul.
+8. Sebagai latihan lanjutan, buat server yang melayani banyak client dengan `fork` atau thread per koneksi.
+
+### Pertanyaan Refleksi
+
+1. Mengapa socket dapat diperlakukan sebagai file descriptor.
+2. Apa perbedaan IP address dan port.
+3. Kapan TCP lebih tepat digunakan daripada UDP.
+4. Mengapa `htons` dan `htonl` diperlukan.
+5. Apa urutan syscall utama pada server TCP.
+6. Apa urutan syscall utama pada client TCP.
+7. Mengapa `accept` mengembalikan file descriptor baru.
+8. Apa arti pernyataan bahwa TCP adalah stream, bukan pesan.
+9. Apa konsekuensi praktis dari partial read.
+10. Apa dua pendekatan umum untuk membuat server melayani banyak client secara bersamaan.
+
+---
+
+Bab ini memperkenalkan socket sebagai dasar komunikasi jaringan pada C. Bab berikutnya membahas syscall secara lebih dalam, termasuk perbedaan user space dan kernel space, mekanisme mode switch, serta peran libc saat program memanggil fungsi seperti `read`, `write`, `open`, dan `socket`.
+

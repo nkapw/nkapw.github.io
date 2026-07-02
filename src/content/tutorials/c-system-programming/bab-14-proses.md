@@ -1,136 +1,144 @@
 ---
-title: "Bab 14 — Proses (Process)"
-description: "Sampai sekarang program kita selalu berjalan sebagai satu alur eksekusi dan satu wujud. Sekarang kita masuk ke salah satu konsep dasar sistem operasi, yaitu proses...."
-tags: [c, system-programming]
+title: "Bab 14 - Proses"
+description: "Program C yang sudah dikompilasi menjadi file executable belum menjadi proses. File tersebut baru menjadi proses ketika sistem operasi memuatnya ke memori dan..."
+tags: [c, systems-programming]
 order: 14
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Program C yang sudah dikompilasi menjadi file executable belum menjadi proses. File tersebut baru menjadi proses ketika sistem operasi memuatnya ke memori dan menjalankannya. Pada bab ini, pembahasan berpindah dari program tunggal ke cara sistem operasi membuat, mengganti, menunggu, dan mengakhiri proses.
 
-> "Saat kamu mengetik sebuah perintah di shell dan menekan Enter, shell menggandakan dirinya sendiri, lalu salinannya berubah menjadi program yang kamu minta. Polanya adalah `fork`, lalu `exec`."
-
-Sampai sekarang program kita selalu berjalan sebagai satu alur eksekusi dan satu wujud. Sekarang kita masuk ke salah satu konsep dasar sistem operasi, yaitu **proses**. Apa sebenarnya "program yang sedang berjalan" itu? Bagaimana satu program bisa menjalankan program lain? Bagaimana shell, yang juga hanya program biasa, bisa menjalankan `ls`, `gcc`, atau program buatanmu?
-
-Jawabannya ada di tiga syscall yang menjadi dasar banyak perilaku UNIX, yaitu **`fork`**, **`exec`**, dan **`wait`**. Setelah memahaminya, perintah sederhana di shell akan terlihat sebagai rangkaian langkah yang konkret.
+Konsep proses penting untuk memahami cara shell menjalankan perintah, cara program membuat program lain, dan cara sistem UNIX membangun pohon proses. Tiga system call utama yang perlu dipahami adalah `fork`, `exec`, dan `wait`.
 
 ---
 
-## 14.1 Apa itu proses?
+## 14.1 Program dan Proses
 
-Mari bedakan dua istilah yang sering tertukar:
+Program adalah file executable yang tersimpan di disk. Isinya berupa instruksi mesin, data awal, metadata, dan informasi lain yang dibutuhkan loader. Selama belum dijalankan, program hanya berupa file pasif.
 
-- **Program** adalah file executable yang pasif di disk (hasil Bab 1 & 11). Isinya byte instruksi dan data, tetapi belum berjalan.
-- **Proses** adalah program yang **sedang berjalan**. Ia merupakan instance hidup dari program, lengkap dengan memori, register, dan state-nya sendiri.
+Proses adalah program yang sedang berjalan. Sebuah proses memiliki identitas, ruang memori, register, file descriptor, status eksekusi, dan hubungan dengan proses lain. Satu file program dapat dijalankan beberapa kali dan menghasilkan beberapa proses yang berbeda.
 
-Program bisa dibayangkan seperti **resep** yang pasif di atas kertas. Proses adalah **kegiatan memasak yang sedang berlangsung** mengikuti resep itu, lengkap dengan dapur, bahan, dan kompor yang aktif. Satu resep bisa dipakai beberapa kali sekaligus oleh orang berbeda. Dengan cara yang sama, satu file program bisa menjadi banyak proses, misalnya ketika kamu membuka tiga terminal dan mendapatkan tiga proses `bash` dari satu program `bash`.
+Setiap proses biasanya memiliki komponen berikut.
 
-Setiap proses, dari sudut pandang kernel, punya:
+- `PID`, yaitu Process ID yang dipakai kernel untuk mengenali proses.
+- Ruang memori virtual sendiri yang berisi text, data, heap, stack, dan area lain yang sudah dibahas pada Bab 9.
+- Tabel file descriptor sendiri, termasuk `stdin`, `stdout`, dan `stderr`.
+- State eksekusi, termasuk register dan instruction pointer.
+- Parent process, yaitu proses yang membuatnya.
 
-- **PID (Process ID)** — nomor identitas unik. Kernel melacak tiap proses dengan PID-nya.
-- **Ruang memori virtual sendiri** — text, data, heap, stack (peta lengkap dari Bab 9). Bagian ini penting karena **tiap proses punya ruang memori terisolasi sendiri**. Proses A tidak bisa sembarangan membaca atau menulis memori proses B. Ini fondasi keamanan dan stabilitas; satu program yang crash tidak otomatis menjatuhkan program lain.
-- **Tabel file descriptor sendiri** (Bab 12) — fd 0/1/2 dan file yang ia buka.
-- **State eksekusi** — isi register, instruction pointer (Bab 3), dll.
-- **Parent** — proses yang membuatnya (tiap proses punya induk; membentuk pohon proses).
-
-Lihat proses yang berjalan dengan `ps aux` atau `top`. PID 1 (`init`/`systemd`) adalah leluhur semua proses. Dari sana, proses lain lahir sebagai child, lalu bisa melahirkan child berikutnya, membentuk pohon proses.
+Proses membentuk struktur pohon. Proses awal sistem, seperti `init` atau `systemd`, biasanya memiliki PID 1 dan menjadi akar dari banyak proses lain. Daftar proses yang sedang berjalan dapat dilihat dengan perintah seperti `ps`, `top`, atau `pstree`.
 
 ---
 
-## 14.2 Ruang memori terisolasi: ilusi yang berguna
+## 14.2 Ruang Memori Virtual yang Terisolasi
 
-Ide yang perlu kamu pegang adalah bahwa **setiap proses merasa memiliki seluruh memori untuk dirinya sendiri**.
+Setiap proses memiliki ruang memori virtual sendiri. Dua proses dapat sama-sama memiliki alamat virtual yang terlihat sama, tetapi alamat tersebut tidak harus menunjuk ke lokasi fisik RAM yang sama.
 
-Saat Bab 9 membahas "alamat 0x1000", dua proses berbeda bisa sama-sama punya data di "alamat 0x1000". Namun, itu adalah alamat **virtual**. Kernel dan hardware, lewat MMU (Memory Management Unit), menerjemahkan alamat virtual tiap proses ke alamat fisik RAM yang berbeda. Inilah **virtual memory**.
+Kernel dan perangkat keras melalui MMU menerjemahkan alamat virtual menjadi alamat fisik. Dengan cara ini, proses A tidak dapat langsung membaca atau menulis memori proses B. Isolasi tersebut menjadi dasar keamanan dan stabilitas sistem. Jika satu proses crash, proses lain tidak otomatis ikut rusak.
 
-Bayangkan tiap proses tinggal di "apartemen" sendiri dan menomori ruangannya mulai dari 1. Apartemen A punya "kamar 1", apartemen B juga punya "kamar 1", tetapi keduanya adalah dua ruangan fisik berbeda di gedung yang sama, yaitu RAM. Pengelola gedung, dalam analogi ini kernel dan MMU, memetakan "kamar 1 milik A" ke lokasi fisik yang berbeda dari "kamar 1 milik B". Penghuni A tidak bisa masuk begitu saja ke apartemen B.
+Konsekuensinya, proses tidak dapat berbagi variabel biasa. Jika dua proses perlu berkomunikasi, keduanya harus memakai mekanisme IPC seperti pipe, socket, shared memory, atau file. Mekanisme tersebut akan dibahas lebih lanjut pada bab berikutnya.
 
-Konsekuensinya penting. Karena memori terisolasi, proses **tidak bisa** sekadar berbagi variabel seperti thread (Bab 17). Untuk berkomunikasi antar proses, mereka butuh mekanisme khusus, yaitu **IPC** seperti pipe dan shared memory (Bab 16). Simpan ide ini saat kita membahas `fork`.
-
-Isolasi ini juga menjelaskan kenapa bug di satu proses biasanya berhenti di proses itu saja. Kalau sebuah proses menulis ke alamat yang tidak valid, kernel bisa menghentikan proses tersebut tanpa harus merusak memori proses lain.
+Isolasi ini juga penting ketika membahas `fork`. Setelah proses digandakan, parent dan child memiliki ruang memori masing-masing. Perubahan variabel pada child tidak mengubah variabel pada parent.
 
 ---
 
-## 14.3 `fork()`: menggandakan diri
+## 14.3 `fork`
 
-`fork()` sering terasa membingungkan saat pertama kali ditemui karena efeknya tidak seperti pemanggilan fungsi biasa. **`fork()` menciptakan proses baru dengan cara menggandakan proses yang memanggilnya.**
+`fork` membuat proses baru dengan menggandakan proses pemanggil.
 
 ```c
 #include <unistd.h>
+
 pid_t fork(void);
 ```
 
-Setelah `fork`, ada **dua** proses yang nyaris identik berjalan. Proses pertama adalah **parent** (yang asli), dan proses kedua adalah **child** (salinan). Child mendapat **salinan** dari memori parent (text, data, heap, stack), tabel fd, dan posisi eksekusi. Keduanya melanjutkan dari **baris yang sama persis**, tepat setelah `fork`.
+Setelah `fork` berhasil, ada dua proses yang melanjutkan eksekusi dari titik yang sama. Proses asli disebut parent. Proses baru disebut child. Keduanya memiliki salinan memori, salinan tabel file descriptor, dan state eksekusi yang berawal dari keadaan yang sama.
 
-Bagian yang perlu diperhatikan adalah bahwa **`fork` dipanggil sekali, tetapi "return" dua kali**. Satu return terjadi di parent, satu lagi terjadi di child. Cara membedakan keduanya adalah dari **nilai return**.
+Hal penting dari `fork` adalah nilai return-nya berbeda pada parent dan child.
 
-- Di **parent**: `fork` mengembalikan **PID child** (angka positif).
-- Di **child**: `fork` mengembalikan **0**.
-- Kalau **gagal**: `fork` mengembalikan **-1** dan tidak ada child yang dibuat.
+- Pada parent, `fork` mengembalikan PID child.
+- Pada child, `fork` mengembalikan `0`.
+- Jika gagal, `fork` mengembalikan `-1` dan child tidak dibuat.
 
 ```c
 #include <stdio.h>
 #include <unistd.h>
 
 int main(void) {
-    printf("Sebelum fork (PID saya: %d)\n", getpid());
+    printf("Sebelum fork, PID saya %d\n", getpid());
 
-    pid_t pid = fork();          // <- di sini proses menggandakan diri
+    pid_t pid = fork();
 
     if (pid == -1) {
         perror("fork");
         return 1;
     } else if (pid == 0) {
-        // ini dijalankan oleh child
-        printf("Saya CHILD. PID saya %d, parent saya %d\n", getpid(), getppid());
+        printf("Child, PID saya %d, parent saya %d\n",
+               getpid(), getppid());
     } else {
-        // ini dijalankan oleh parent
-        printf("Saya PARENT. PID saya %d, child saya %d\n", getpid(), pid);
+        printf("Parent, PID saya %d, child saya %d\n",
+               getpid(), pid);
     }
 
-    printf("Baris ini dicetak oleh KEDUANYA (PID %d)\n", getpid());
+    printf("Baris ini dicetak oleh proses dengan PID %d\n", getpid());
     return 0;
 }
 ```
 
-Jalankan beberapa kali. Kamu akan melihat baris terakhir dicetak **dua kali**, oleh parent dan child. Urutannya bisa berubah-ubah karena keduanya berjalan bersamaan dan kernel yang menjadwalkan kapan masing-masing mendapat giliran CPU. Tidak ada jaminan siapa yang mencetak lebih dulu. `getpid()` mengembalikan PID proses sendiri, sedangkan `getppid()` mengembalikan PID parent.
+Baris setelah `fork` dijalankan oleh parent dan child. Karena keduanya dijadwalkan oleh kernel, urutan output tidak selalu sama pada setiap eksekusi. Program tidak boleh bergantung pada urutan tersebut kecuali memakai mekanisme sinkronisasi seperti `wait`.
 
-Untuk membayangkannya, anggap `fork` menggandakan satu proses menjadi dua proses yang memiliki memori awal yang sama. Sebelum `fork`, hanya ada satu alur eksekusi. Sesudah `fork`, ada dua alur eksekusi yang sama-sama berada tepat setelah pemanggilan `fork`. Satu-satunya cara kode mengetahui "saya parent atau child" adalah nilai return tadi: parent menerima PID child, sedangkan child menerima 0.
+### Memori Child adalah Salinan
 
-### Memori child adalah salinan, bukan berbagi
-
-Bagian ini menghubungkan `fork` dengan Bagian 14.2. Setelah `fork`, child punya **salinan** memori parent, bukan memori yang sama. Mengubah variabel di child **tidak** mengubahnya di parent karena ruang memori proses terisolasi.
+Setelah `fork`, child memiliki salinan memori parent. Jika child mengubah variabel, perubahan itu tidak terlihat oleh parent.
 
 ```c
-int x = 100;
-pid_t pid = fork();
-if (pid == 0) {
-    x = 999;                         // child mengubah salinannya
-    printf("child: x = %d\n", x);    // 999
-} else {
-    sleep(1);
-    printf("parent: x = %d\n", x);   // tetap 100!
+#include <stdio.h>
+#include <unistd.h>
+
+int main(void) {
+    int x = 100;
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return 1;
+    }
+
+    if (pid == 0) {
+        x = 999;
+        printf("child x = %d\n", x);
+    } else {
+        sleep(1);
+        printf("parent x = %d\n", x);
+    }
+
+    return 0;
 }
 ```
 
-> **Optimasi di balik layar — Copy-on-Write (COW):** menyalin seluruh memori parent setiap `fork` akan sangat boros, terutama kalau prosesnya besar. Karena itu, kernel memakai strategi yang lebih hemat. Pada awalnya, parent dan child **berbagi** halaman memori fisik yang sama, tetapi halaman itu ditandai read-only. Penyalinan sebenarnya baru terjadi **saat salah satu proses mencoba menulis** ke sebuah halaman. Pada saat itulah kernel membuat salinan halaman tersebut. Jadi `fork` tetap cepat dan hemat; memori yang hanya dibaca tidak perlu benar-benar disalin.
+Parent tetap mencetak `100` karena perubahan `x` pada child terjadi di ruang memori child sendiri.
 
-Perhatikan bedanya antara model yang terlihat oleh program dan optimasi di dalam kernel. Dari sudut pandang program C, parent dan child tetap punya memori masing-masing. Copy-on-Write hanya membuat implementasinya lebih efisien tanpa mengubah semantik bahwa perubahan di child tidak mengubah variabel di parent.
+### Copy-on-Write
+
+Menyalin seluruh memori parent setiap kali `fork` akan sangat mahal. Sistem modern memakai optimasi Copy-on-Write. Pada awalnya, parent dan child dapat berbagi halaman fisik yang sama selama halaman tersebut hanya dibaca. Ketika salah satu proses menulis ke halaman tersebut, kernel membuat salinan halaman untuk proses yang menulis.
+
+Bagi programmer, perilakunya tetap terlihat seperti salinan memori terpisah. Optimasi ini hanya membuat `fork` lebih efisien tanpa mengubah model pemrogramannya.
 
 ---
 
-## 14.4 `exec()`: berubah wujud jadi program lain
+## 14.4 `exec`
 
-`fork` membuat salinan diri. Namun, dalam banyak kasus, child tidak dibuat hanya untuk menjalankan kode yang sama dengan parent. Shell, misalnya, membuat child karena child itu akan menjalankan program **yang berbeda**, seperti `ls`, `gcc`, atau program buatanmu. Untuk kebutuhan ini, UNIX menyediakan keluarga **`exec`**.
+`exec` mengganti isi proses saat ini dengan program baru. PID proses tetap sama, tetapi kode, data, heap, stack, dan image program lama diganti oleh image program baru.
 
-> **`exec` mengganti seluruh isi proses saat ini dengan program baru.** Text, data, heap, stack, dan state program lama dibuang lalu diganti dengan program yang baru di-load. PID tetap sama, tetapi "isi" prosesnya menjadi program lain.
+Ada beberapa varian `exec`. Dua yang sering dipakai adalah `execlp` dan `execvp`.
 
 ```c
 #include <unistd.h>
+
 int execlp(const char *file, const char *arg0, ..., (char *)NULL);
 int execvp(const char *file, char *const argv[]);
-// ... dan varian lain (execl, execv, execle, execve)
 ```
 
-Bagian pentingnya adalah ini. **Kalau `exec` berhasil, ia tidak pernah return**, karena kode yang memanggilnya sudah tidak ada lagi. Kode lama sudah ditimpa oleh program baru. Kode setelah `exec` hanya tereksekusi kalau `exec` **gagal**.
+Jika `exec` berhasil, fungsi tersebut tidak kembali ke pemanggil. Kode setelah pemanggilan `exec` hanya berjalan jika `exec` gagal.
 
 ```c
 #include <stdio.h>
@@ -139,36 +147,34 @@ Bagian pentingnya adalah ini. **Kalau `exec` berhasil, ia tidak pernah return**,
 int main(void) {
     printf("Sebelum exec\n");
 
-    // ganti proses ini dengan program "ls -l"
     execlp("ls", "ls", "-l", (char *)NULL);
 
-    // baris di bawah hanya jalan kalau exec gagal
-    perror("execlp");      // mis. program tak ditemukan
-    printf("Baris ini tak akan tercetak kalau exec sukses\n");
+    perror("execlp");
     return 1;
 }
 ```
 
-Saat program ini dijalankan, kamu melihat "Sebelum exec", lalu output `ls -l`. Namun, baris setelah `execlp` **tidak** muncul kalau `exec` sukses, karena proses sudah berubah menjadi `ls` dan `ls` yang menyelesaikan eksekusi. Proses awal tidak kembali lagi ke kode lama.
+Jika `execlp` berhasil, proses ini diganti menjadi program `ls`. Karena kode lama sudah tidak ada, baris setelah `execlp` tidak dijalankan. Jika `execlp` gagal, misalnya karena program tidak ditemukan, baris `perror` dijalankan.
 
-Kalau `fork` menggandakan proses, `exec` mengganti program yang hidup di dalam proses. PID tetap sama karena prosesnya masih proses yang sama dari sudut pandang kernel. Namun kode, data, heap, stack, dan entry point program diganti oleh program baru. Karena itu, tidak ada konsep "kembali" dari `exec` yang sukses.
+Huruf pada nama varian `exec` menunjukkan bentuk argumen.
 
-File descriptor yang tidak ditandai close-on-exec juga tetap terbuka melewati `exec`. Detail ini penting untuk shell dan redirection: shell bisa menyiapkan fd child terlebih dahulu, lalu child memanggil `exec`, dan program baru mewarisi fd yang sudah diarahkan.
+- `l` berarti argumen diberikan sebagai daftar.
+- `v` berarti argumen diberikan sebagai array seperti `argv`.
+- `p` berarti nama program dicari melalui `PATH`.
+- `e` berarti environment diberikan secara eksplisit.
 
-Huruf di belakang nama varian `exec` menandakan bentuk argumennya. `l` berarti list, argumen ditulis satu per satu. `v` berarti vector, argumen diberikan sebagai array `argv`. `p` berarti nama program dicari lewat `PATH`. `e` berarti pemanggil menyediakan environment custom. Untuk menjalankan perintah seperti shell, `execvp` (vector + `PATH`) sangat sering dipakai.
+Untuk menjalankan perintah seperti shell, `execvp` sering lebih praktis karena menerima array argumen dan mencari program melalui `PATH`.
 
 ---
 
-## 14.5 `fork` + `exec`: pola universal menjalankan program
+## 14.5 Pola `fork`, `exec`, dan `wait`
 
-Sekarang kita gabungkan dua konsep tadi. Kalau kita memanggil `exec` langsung di proses utama, proses kita lenyap dan diganti menjadi program lain. Biasanya bukan itu yang kita inginkan. Shell, misalnya, perlu menjalankan `ls`, tetapi shell itu sendiri harus tetap hidup agar bisa kembali menampilkan prompt.
-
-Caranya adalah **`fork` dulu untuk membuat child, lalu `exec` di child saja**. Parent tetap utuh; child berubah menjadi program baru. Inilah pola fundamental untuk menjalankan program di UNIX.
+Jika `exec` dipanggil langsung oleh proses utama, proses utama akan diganti oleh program baru. Shell tidak melakukan itu, karena shell harus tetap hidup setelah perintah selesai. Pola yang dipakai adalah membuat child dengan `fork`, menjalankan `exec` pada child, lalu parent menunggu child.
 
 ```c
 #include <stdio.h>
-#include <unistd.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 int main(void) {
     pid_t pid = fork();
@@ -177,127 +183,181 @@ int main(void) {
         perror("fork");
         return 1;
     } else if (pid == 0) {
-        // child: berubah wujud jadi "ls -l"
         execlp("ls", "ls", "-l", (char *)NULL);
-        perror("execlp");      // hanya jalan kalau exec gagal
-        _exit(127);            // child harus keluar (pakai _exit, lihat catatan)
+        perror("execlp");
+        _exit(127);
     } else {
-        // parent: tunggu child selesai, lalu lanjut
         int status;
-        wait(&status);         // tunggu child (Bagian 14.6)
-        printf("Parent: child sudah selesai. Lanjut hidup.\n");
+        wait(&status);
+        printf("Parent lanjut setelah child selesai\n");
     }
+
     return 0;
 }
 ```
 
-Inilah yang shell lakukan setiap kali kamu mengetik perintah. Shell memanggil `fork` untuk membuat child. Child memanggil `exec` untuk menjadi program yang kamu minta. Parent, yaitu shell, memanggil `wait` sampai child selesai, lalu menampilkan prompt lagi. `bash`, `zsh`, dan shell lain mengikuti pola dasar ini.
+Dalam pola ini, parent tetap menjadi program semula. Child diganti menjadi program lain melalui `exec`. Setelah child selesai, parent menerima status selesai melalui `wait`.
 
-Pemisahan ini membuat shell tetap hidup. Kalau shell langsung memanggil `exec("ls", ...)` tanpa `fork`, proses shell sendiri akan berubah menjadi `ls`, sehingga setelah `ls` selesai tidak ada shell yang kembali menampilkan prompt.
+Shell memakai pola yang sama ketika menjalankan perintah biasa. Shell membuat child, child menjalankan program yang diminta, parent menunggu, lalu shell kembali menampilkan prompt.
 
-> **Kenapa `_exit` (underscore) di child, bukan `return` atau `exit`?** Setelah `fork`, child mewarisi salinan buffer stdio parent (Bab 12). Kalau child memanggil `exit` atau `return`, buffer stdio akan di-flush. Akibatnya, output yang sudah di-buffer parent bisa ter-flush dua kali: sekali oleh child, sekali oleh parent. Hasilnya bisa berupa output ganda. `_exit` keluar tanpa mem-flush buffer stdio, sehingga menghindari masalah ini. Detail ini kecil, tetapi penting karena menghubungkan `fork` dengan buffering dari Bab 12.
+### Mengapa Child Memakai `_exit`
+
+Pada child hasil `fork`, jika `exec` gagal, child harus segera keluar. Contoh di atas memakai `_exit(127)` agar child keluar tanpa melakukan flush ulang pada buffer stdio yang diwarisi dari parent.
+
+Jika child memakai `exit` atau `return`, buffer stdio yang sudah ada sebelum `fork` dapat ikut di-flush oleh child. Dalam kasus tertentu, output yang sama dapat tercetak dua kali. `_exit` menghindari masalah tersebut karena langsung keluar melalui kernel.
 
 ---
 
-## 14.6 `wait()`: parent menunggu child & masalah zombie
+## 14.6 `wait` dan `waitpid`
 
-Setelah `fork`, parent dan child berjalan bersamaan. Namun, sering kali parent perlu **menunggu** child selesai. Shell, misalnya, biasanya menunggu `ls` selesai sebelum menampilkan prompt berikutnya. Untuk itu ada **`wait`** dan **`waitpid`**.
+Parent dan child berjalan secara bersamaan setelah `fork`. Jika parent perlu menunggu child selesai, gunakan `wait` atau `waitpid`.
 
 ```c
 #include <sys/wait.h>
-pid_t wait(int *status);                          // tunggu child mana saja selesai
-pid_t waitpid(pid_t pid, int *status, int opts);  // tunggu child tertentu
+
+pid_t wait(int *status);
+pid_t waitpid(pid_t pid, int *status, int options);
 ```
 
-`wait(&status)` memblokir parent sampai salah satu child-nya selesai. Setelah itu, `wait` mengisi `status` dengan informasi **bagaimana** child berakhir. Nilai `status` tidak dibaca langsung sebagai angka biasa; kamu membacanya dengan macro berikut.
-
-Kalau parent punya lebih dari satu child, `wait` boleh mengembalikan child mana pun yang selesai lebih dulu. Saat kamu perlu menunggu child tertentu, gunakan `waitpid(pid, &status, 0)`.
+`wait` menunggu salah satu child selesai. `waitpid` dapat menunggu child tertentu atau memakai opsi tertentu. Keduanya mengisi `status` dengan informasi tentang cara child berakhir.
 
 ```c
-int status;
-pid_t selesai = wait(&status);
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-if (WIFEXITED(status)) {
-    printf("Child %d keluar normal dengan kode %d\n",
-           selesai, WEXITSTATUS(status));   // exit code child (ingat return dari main, Bab 1!)
-} else if (WIFSIGNALED(status)) {
-    printf("Child %d dibunuh oleh signal %d\n",
-           selesai, WTERMSIG(status));       // misal di-kill (Bab 15)
+int main(void) {
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return 1;
+    }
+
+    if (pid == 0) {
+        return 42;
+    }
+
+    int status;
+    pid_t done = wait(&status);
+
+    if (done == -1) {
+        perror("wait");
+        return 1;
+    }
+
+    if (WIFEXITED(status)) {
+        printf("Child %d keluar normal dengan kode %d\n",
+               done, WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+        printf("Child %d dihentikan oleh signal %d\n",
+               done, WTERMSIG(status));
+    }
+
+    return 0;
 }
 ```
 
-- `WIFEXITED(status)` — benar kalau child keluar normal (`return`/`exit`).
-- `WEXITSTATUS(status)` — exit code-nya (0-255). Inilah yang "kembali" dari `return 0` di `main` child.
-- `WIFSIGNALED(status)` / `WTERMSIG(status)` — kalau child dihentikan oleh signal (Bab 15).
+Beberapa macro penting untuk membaca `status` adalah sebagai berikut.
 
-### Zombie & orphan: dua keadaan aneh
+- `WIFEXITED(status)` bernilai benar jika child keluar normal melalui `return` atau `exit`.
+- `WEXITSTATUS(status)` mengambil exit code child.
+- `WIFSIGNALED(status)` bernilai benar jika child dihentikan oleh signal.
+- `WTERMSIG(status)` mengambil nomor signal yang menghentikan child.
 
-**Zombie process** terdengar aneh, tetapi konsepnya sederhana. Saat child selesai, kernel **tidak langsung** membuang semua jejaknya. Kernel menyimpan sedikit informasi, terutama exit status, sampai parent memanggil `wait` untuk mengambil informasi tersebut. Child yang sudah selesai tetapi exit status-nya belum diambil parent disebut **zombie**. Ia sudah tidak berjalan, tetapi masih menempati satu entri di tabel proses kernel.
-
-Kalau parent **tidak pernah** memanggil `wait`, zombie-zombie bisa menumpuk dan membocorkan entri tabel proses. Ini sejenis resource leak. Karena itu, parent yang me-`fork` child bertanggung jawab mem-`wait`-nya. Untuk child yang berjalan lama tanpa membuat parent memblokir terus, ada teknik seperti menangani signal `SIGCHLD` (Bab 15).
-
-Bayangkan child yang selesai seperti paket yang sudah sampai di loker. Kernel menyimpan paket itu, yaitu exit status, sampai parent datang mengambilnya dengan `wait`. Kalau parent tidak pernah mengambilnya, paket menumpuk di loker. Dalam sistem operasi, "loker" itu adalah entri tabel proses.
-
-**Orphan process** adalah keadaan sebaliknya. Kalau **parent** selesai duluan sebelum child, child menjadi **orphan**. Kernel tidak membiarkannya tanpa parent; proses itu akan diadopsi oleh `init` atau `systemd` (PID 1), yang kemudian akan mem-`wait`-nya. Jadi orphan biasanya bukan masalah. Zombie yang tidak pernah di-`wait` justru lebih berbahaya untuk resource proses.
+Exit code child berada pada rentang yang dapat dibaca parent melalui `wait`. Nilai ini berkaitan dengan nilai yang dikembalikan dari `main` atau diberikan ke `exit`.
 
 ---
 
-## 14.7 Peta lengkap: siklus hidup proses
+## 14.7 Zombie Process dan Orphan Process
 
-Sekarang kita satukan alurnya.
+Ketika child selesai, kernel tidak langsung membuang semua informasi tentang child tersebut. Kernel menyimpan sebagian informasi, terutama exit status, sampai parent memanggil `wait` atau `waitpid`. Child yang sudah selesai tetapi statusnya belum diambil disebut zombie process.
 
+Zombie tidak lagi menjalankan kode, tetapi masih memakai satu entri pada tabel proses kernel. Jika parent membuat banyak child dan tidak pernah memanggil `wait`, entri zombie dapat menumpuk. Karena itu, proses yang membuat child bertanggung jawab mengambil status child.
+
+Contoh berikut membuat zombie sementara.
+
+```c
+#include <stdlib.h>
+#include <unistd.h>
+
+int main(void) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        _exit(0);
+    }
+
+    sleep(30);
+    return 0;
+}
 ```
-        fork()                    exec()                    exit()/return
-parent ───┬──────► parent terus jalan ──────► wait() ◄── (ambil exit status)
-          │                                      ▲
-          └──► child (salinan) ──► child exec ───┘
-                                   (jadi program baru) ──► selesai
+
+Selama parent tidur, child sudah selesai tetapi belum di-`wait`. Pada sistem UNIX, proses seperti ini dapat terlihat sebagai `<defunct>` melalui `ps`.
+
+Orphan process terjadi ketika parent selesai lebih dulu, sementara child masih berjalan. Dalam kondisi ini, child akan diadopsi oleh proses lain yang bertugas mengambil statusnya, biasanya `init` atau `systemd`. Orphan bukan masalah yang sama dengan zombie. Zombie perlu ditangani oleh parent melalui `wait`, sedangkan orphan akan memiliki parent baru.
+
+---
+
+## 14.8 Siklus Hidup Proses
+
+Siklus umum menjalankan program lain pada sistem UNIX dapat diringkas sebagai berikut.
+
+```text
+parent memanggil fork
+parent tetap berjalan
+child melanjutkan dari titik setelah fork
+child memanggil exec
+child menjadi program baru
+child selesai dengan exit atau return
+parent memanggil wait
+parent mengambil exit status child
 ```
 
-1. Proses memanggil **`fork`** → muncul child (salinan, COW).
-2. Child sering memanggil **`exec`** → menjelma jadi program berbeda (PID tetap).
-3. Parent memanggil **`wait`** → memblokir sampai child selesai, mengambil exit status (mencegah zombie).
-4. Child selesai dengan **`exit`/`return`** → exit status diteruskan ke parent lewat `wait`.
+Urutan tersebut menjadi dasar cara shell menjalankan perintah. Parent, yaitu shell, tetap hidup. Child menjadi program yang diminta. Setelah program selesai, shell mengambil statusnya dan kembali menerima perintah.
 
-Siklus ini menjadi dasar cara sistem UNIX menjalankan banyak program. PID 1 mem-`fork` proses-proses awal. Proses-proses itu kemudian mem-`fork` dan `exec` proses lain lagi, sampai terbentuk pohon proses besar yang bisa kamu lihat dengan `ps` atau `pstree`.
-
-> **Sekilas `argc`/`argv` (menutup Bab 7):** saat shell mem-`exec` programmu, ia mengoper daftar argumen yang menjadi `argv` di `main(int argc, char **argv)`. Dari sinilah `argv` berasal. Ia diteruskan oleh proses yang meng-`exec` programmu. `argv[0]` adalah nama program, seperti argumen pertama di `execlp("ls", "ls", ...)`.
+Argumen program juga masuk melalui pola ini. Ketika sebuah proses memanggil `exec`, ia mengirim daftar argumen yang kemudian diterima program baru melalui `main(int argc, char **argv)`. Dengan demikian, `argv` berasal dari proses yang menjalankan program tersebut.
 
 ---
 
-## 14.8 Rangkuman model mental
+## 14.9 Rangkuman Model Mental
 
-1. **Program** adalah file pasif di disk, sedangkan **proses** adalah program yang sedang berjalan sebagai instance hidup dengan PID, memori, fd, dan state sendiri.
-2. **Tiap proses punya ruang memori virtual terisolasi** lewat virtual memory dan MMU. Proses tidak bisa sembarang membaca memori proses lain; ini menjadi fondasi stabilitas dan keamanan. Untuk komunikasi antar proses, gunakan mekanisme IPC (Bab 16).
-3. **`fork()`** menggandakan proses. Ia dipanggil sekali, tetapi return dua kali: parent mendapat PID child, child mendapat `0`, dan kegagalan ditandai dengan `-1`. Memori child adalah **salinan** yang dioptimasi dengan **Copy-on-Write**, bukan memori yang dibagi langsung.
-4. **`exec()`** mengganti isi proses dengan program baru. Kalau sukses, ia tidak pernah return ke kode lama; kode setelah `exec` hanya jalan kalau `exec` gagal. PID proses tetap sama.
-5. **`fork` + `exec`** adalah pola dasar menjalankan program di UNIX. Parent tetap hidup, child memanggil `exec` untuk berubah menjadi program yang diminta.
-6. **`wait()`** membuat parent menunggu child dan mengambil **exit status** (`WIFEXITED`/`WEXITSTATUS`). Tanpa `wait`, child yang sudah selesai menjadi **zombie**. Kalau parent mati duluan, child menjadi **orphan** dan diadopsi PID 1.
-
----
-
-## 14.9 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Tulis program `fork` dasar (Bagian 14.3) yang mencetak pesan berbeda di parent dan child, plus PID masing-masing. Jalankan beberapa kali — apakah urutan output selalu sama? Kenapa?
-2. Buktikan memori terisolasi: deklarasikan `int x = 100;` sebelum `fork`, ubah jadi 999 di child, cetak di parent (beri `sleep(1)` di parent agar child sempat jalan). Apakah parent melihat 999 atau 100? Jelaskan.
-3. Tulis program yang `fork`+`exec` untuk menjalankan `ls -l` (Bagian 14.5). Tambahkan `wait` di parent dan cetak pesan setelah child selesai. Amati urutannya.
-4. Buat program yang menjalankan perintah dari `argv` (mini-shell): ambil `argv[1]`, `argv[2]`, ... sebagai perintah & argumen, `fork`+`execvp`, lalu `wait`. Jalankan `./mini ls -l` atau `./mini echo halo`.
-5. Tangkap exit code child: bikin child yang `return 42;` (atau `exit(42)`), dan parent yang mencetak `WEXITSTATUS(status)`. Konfirmasi 42 muncul. Hubungkan dengan `echo $?` dari Bab 1.
-6. Buat zombie sengaja: child langsung `exit`, parent `sleep(30)` **tanpa** `wait`. Saat parent tidur, jalankan `ps aux | grep defunct` di terminal lain — temukan zombie (`<defunct>`). Lalu tambahkan `wait` — apakah zombie hilang?
-7. Buat orphan: parent `fork` lalu langsung selesai, child `sleep(5)` lalu cetak `getppid()`. Apakah PPID child berubah jadi 1 (atau PID `init`/`systemd`) setelah parent mati?
-
-**Pertanyaan refleksi:**
-
-1. Apa beda program dan proses? Berikan analogi sendiri.
-2. Kenapa tiap proses punya ruang memori terisolasi? Apa manfaat keamanan/stabilitasnya, dan apa konsekuensinya untuk komunikasi antar proses?
-3. Kenapa `fork` dikatakan "dipanggil sekali, return dua kali"? Bagaimana cara kode membedakan parent dan child?
-4. Apa itu Copy-on-Write, dan masalah apa yang ia pecahkan?
-5. Kenapa `exec` "tidak pernah return kalau sukses"? Kapan kode setelah `exec` tereksekusi?
-6. Jelaskan pola `fork`+`exec`+`wait` dan kaitkan dengan apa yang shell lakukan saat kamu menjalankan perintah.
-7. Apa itu zombie process, kenapa ia muncul, dan bagaimana mencegahnya? Bedakan dengan orphan.
+1. Program adalah file executable di disk, sedangkan proses adalah program yang sedang berjalan.
+2. Setiap proses memiliki PID, ruang memori virtual, file descriptor, state eksekusi, dan parent.
+3. Ruang memori proses terisolasi. Proses tidak dapat berbagi variabel biasa tanpa mekanisme IPC.
+4. `fork` membuat child sebagai salinan proses pemanggil.
+5. `fork` mengembalikan PID child pada parent, `0` pada child, dan `-1` saat gagal.
+6. Memori child terlihat sebagai salinan dari parent. Optimasi Copy-on-Write membuat proses ini efisien.
+7. `exec` mengganti isi proses saat ini dengan program baru. Jika berhasil, `exec` tidak kembali.
+8. Pola umum menjalankan program adalah `fork`, lalu `exec` di child, lalu `wait` di parent.
+9. `wait` dan `waitpid` dipakai untuk menunggu child serta mengambil exit status.
+10. Zombie process muncul ketika child selesai tetapi parent belum mengambil statusnya.
+11. Orphan process muncul ketika parent selesai lebih dulu dan child masih berjalan.
 
 ---
 
-Kita sudah membahas bagaimana proses lahir, berubah, dan selesai. Pertanyaan berikutnya adalah bagaimana proses bisa menerima gangguan dari luar, misalnya saat pengguna menekan Ctrl+C, saat proses di-`kill`, atau saat kernel perlu memberi tahu bahwa sesuatu terjadi. Itu wilayah **signal**. Di **Bab 15**, kita akan membahas signal sebagai interupsi software, signal handler yang terhubung dengan function pointer dari Bab 7, signal umum seperti `SIGINT`/`SIGSEGV`/`SIGKILL`, dan alasan menulis signal handler yang aman tidak sesederhana kelihatannya.
+## 14.10 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Tulis program yang memanggil `fork` dan mencetak pesan berbeda pada parent dan child. Jalankan beberapa kali dan amati urutan output.
+2. Buktikan isolasi memori dengan membuat variabel `int x = 100` sebelum `fork`, mengubahnya di child, lalu mencetaknya di parent.
+3. Tulis program yang menjalankan `ls -l` memakai pola `fork`, `exec`, dan `wait`.
+4. Buat program mini yang menjalankan perintah dari `argv`. Gunakan `argv[1]` sebagai nama program dan argumen berikutnya sebagai argumen program tersebut.
+5. Buat child yang keluar dengan kode `42`, lalu cetak exit code tersebut dari parent memakai `WEXITSTATUS`.
+6. Buat zombie sementara dengan child yang langsung keluar dan parent yang tidur tanpa memanggil `wait`. Amati hasilnya dengan `ps`.
+7. Buat orphan dengan parent yang selesai lebih dulu dan child yang masih tidur. Cetak nilai `getppid` pada child setelah parent selesai.
+
+### Pertanyaan Refleksi
+
+1. Apa perbedaan program dan proses.
+2. Mengapa setiap proses membutuhkan ruang memori virtual yang terisolasi.
+3. Bagaimana `fork` membedakan parent dan child melalui nilai return.
+4. Apa fungsi Copy-on-Write pada implementasi `fork`.
+5. Mengapa kode setelah `exec` hanya berjalan jika `exec` gagal.
+6. Mengapa shell memakai pola `fork`, `exec`, dan `wait`.
+7. Apa penyebab zombie process dan bagaimana cara mencegahnya.
+8. Apa perbedaan zombie process dan orphan process.
+
+---
+
+Bab ini menjelaskan bagaimana proses dibuat, diganti, ditunggu, dan diakhiri. Bab 15 akan membahas signal, yaitu mekanisme yang memungkinkan proses menerima pemberitahuan atau interupsi dari kernel maupun proses lain.
+

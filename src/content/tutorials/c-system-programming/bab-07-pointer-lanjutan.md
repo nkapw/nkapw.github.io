@@ -1,22 +1,19 @@
 ---
-title: "Bab 7 — Pointer Lanjutan"
-description: "Bab 6 membangun dasar pointer. Sekarang kita naik satu tingkat. Bab ini membahas empat topik utama: pointer-to-pointer, array vs pointer, const correctness, dan..."
-tags: [c, system-programming]
+title: "Bab 7 - Pointer Lanjutan"
+description: "Bab 6 telah membahas dasar pointer, termasuk alamat, dereference, hubungan pointer dengan array, dan penggunaan pointer sebagai parameter fungsi. Bab ini melanjutkan..."
+tags: [c, systems-programming]
 order: 7
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Bab 6 telah membahas dasar pointer, termasuk alamat, dereference, hubungan pointer dengan array, dan penggunaan pointer sebagai parameter fungsi. Bab ini melanjutkan pembahasan tersebut ke beberapa konsep yang lebih sering muncul dalam kode C nyata, terutama pada pemrograman sistem, pustaka, API sistem operasi, dan struktur data dinamis.
 
-> "Jika pointer menyimpan alamat sebuah nilai, maka pointer-to-pointer menyimpan alamat dari pointer itu sendiri."
-
-Bab 6 membangun dasar pointer. Sekarang kita naik satu tingkat. Bab ini membahas empat topik utama: **pointer-to-pointer**, **array vs pointer**, **`const` correctness**, dan **function pointer**.
-
-Topik-topik ini sering muncul saat membaca kode C yang lebih nyata, seperti library, API sistem operasi, kode kernel, parser, interpreter, dan program yang memakai callback. Kalau Bab 6 sudah terasa masuk akal, Bab 7 adalah pendalaman dari model yang sama.
+Empat topik utama yang dibahas adalah pointer ke pointer, perbedaan array dan pointer, ketepatan penggunaan `const`, serta pointer ke fungsi. Keempatnya penting karena banyak API C menggunakan pola ini untuk mengelola memori, menerima argumen baris perintah, menjaga kontrak parameter, dan mengirim perilaku melalui callback.
 
 ---
 
-## 7.1 Pointer to pointer (`int **`)
+## 7.1 Pointer ke Pointer (`int **`)
 
-Pointer adalah variabel. Karena pointer adalah variabel, pointer juga punya alamat. Maka kita bisa membuat pointer yang menyimpan **alamat sebuah pointer**. Itulah **pointer to pointer**.
+Pointer adalah variabel yang menyimpan alamat. Karena pointer juga merupakan variabel, pointer memiliki alamat sendiri. Pointer ke pointer adalah pointer yang menyimpan alamat dari pointer lain.
 
 ```c
 #include <stdio.h>
@@ -27,149 +24,146 @@ int main(void) {
     int **pp = &p;    // pp menunjuk ke p
 
     printf("x    = %d\n", x);        // 42
-    printf("*p   = %d\n", *p);       // 42 (isi di alamat p -> x)
-    printf("**pp = %d\n", **pp);     // 42 (isi di alamat (isi di alamat pp))
+    printf("*p   = %d\n", *p);       // 42
+    printf("**pp = %d\n", **pp);     // 42
     return 0;
 }
 ```
 
-Mari bedah `**pp`.
+Urutan evaluasi `**pp` dapat dibaca sebagai berikut.
 
 - `pp` menyimpan alamat `p`.
-- `*pp` berarti "isi di alamat yang disimpan pp", yaitu `p`.
-- `p` sendiri berisi alamat `x`.
-- `**pp` berarti "isi di alamat yang disimpan oleh `p`", yaitu `x`, nilainya 42.
+- `*pp` menghasilkan nilai yang tersimpan di alamat tersebut, yaitu `p`.
+- `p` menyimpan alamat `x`.
+- `**pp` menghasilkan nilai yang tersimpan di alamat `x`, yaitu `42`.
 
-Rantainya bisa divisualisasikan seperti ini:
+Hubungan memorinya dapat digambarkan seperti ini.
 
+```text
+pp ----> p ----> x
+int**   int*    int
+
+*pp  menghasilkan p
+**pp menghasilkan x
 ```
-  pp  ───►  p  ───►  x
- (int**)  (int*)   (int = 42)
 
- *pp  = p
- **pp = x = 42
-```
+### Kapan Pointer ke Pointer Digunakan
 
-`p` bisa dibayangkan sebagai catatan berisi alamat `x`, sedangkan `pp` adalah catatan berisi alamat catatan `p`. Untuk sampai ke `x` lewat `pp`, kamu harus membuka dua lapis alamat: `*pp`, lalu `**pp`.
-
-### Kapan ini berguna? (bukan cuma akademis)
-
-Pointer-to-pointer muncul di situasi nyata yang penting.
-
-**1. Fungsi yang perlu mengubah pointer milik pemanggil.** Ingat prinsip Bab 6. Untuk mengubah variabel asli, kirim alamatnya. Kalau yang ingin kamu ubah adalah sebuah **pointer**, kamu harus mengirim alamat dari pointer itu, yaitu `int **`.
+Pointer ke pointer sering digunakan ketika sebuah fungsi perlu mengubah pointer milik pemanggil. Prinsipnya sama dengan parameter berbasis alamat yang sudah dibahas sebelumnya. Jika fungsi ingin mengubah variabel asli, fungsi harus menerima alamat variabel tersebut. Jika variabel yang ingin diubah adalah pointer, maka yang dikirim adalah alamat dari pointer itu.
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 
-// fungsi ini ingin mengeset pointer milik pemanggil ke memori baru
 void alokasi(int **out) {
-    *out = malloc(sizeof(int));   // ubah pointer ASLI pemanggil
+    *out = malloc(sizeof(int));   // mengubah pointer milik pemanggil
     **out = 99;
 }
 
 int main(void) {
     int *p = NULL;
-    alokasi(&p);                  // kirim ALAMAT pointer p
-    printf("%d\n", *p);           // 99 — p sekarang menunjuk memori baru
+    alokasi(&p);
+    printf("%d\n", *p);           // 99
     free(p);
     return 0;
 }
 ```
 
-Jika parameternya hanya `int *out`, fungsi hanya mengubah salinan pointer. `p` di `main` tetap `NULL`. Ini sama seperti masalah pass by value di Bab 4, tetapi terjadi satu tingkat lebih dalam. Pola `Type **out` umum dipakai pada API yang mengalokasikan sesuatu lalu menyerahkan hasilnya ke pemanggil.
+Jika parameter `alokasi` ditulis sebagai `int *out`, fungsi hanya menerima salinan pointer. Perubahan pada `out` tidak akan mengubah `p` di `main`. Karena itu, pola `T **out` umum digunakan pada fungsi yang mengalokasikan sumber daya lalu menyerahkan alamatnya kepada pemanggil.
 
-**2. Array of strings** (`char **`). Contoh yang paling sering ditemui adalah parameter `main`:
+Pointer ke pointer juga muncul pada array berisi string. Contoh paling umum adalah parameter `argv` pada fungsi `main`.
 
 ```c
 int main(int argc, char **argv) { ... }
 ```
 
-`argv` adalah `char **`, yaitu pointer ke deretan `char *`, dan setiap `char *` menunjuk ke satu string argumen command-line. Kita akan membahasnya lebih lengkap di Bab 14. Untuk sekarang, kamu sudah bisa membacanya: `argv[0]` bertipe `char *` atau satu string, sedangkan `argv[0][0]` bertipe `char`, yaitu karakter pertama dari string pertama.
+`argv` bertipe `char **`. Nilai `argv` menunjuk ke elemen-elemen bertipe `char *`, dan setiap `char *` menunjuk ke satu string argumen baris perintah. Dengan demikian, `argv[0]` bertipe `char *`, sedangkan `argv[0][0]` bertipe `char`.
 
 ```c
 #include <stdio.h>
 
 int main(int argc, char **argv) {
-    printf("jumlah argumen: %d\n", argc);
+    printf("jumlah argumen = %d\n", argc);
     for (int i = 0; i < argc; i++)
-        printf("argv[%d] = %s\n", i, argv[i]);   // tiap argv[i] adalah char*
+        printf("argv[%d] = %s\n", i, argv[i]);
     return 0;
 }
 ```
 
-Jalankan dengan:
-
-```bash
-./program halo dunia
-```
-
-Kamu akan melihat `argv[0]` berisi nama program, `argv[1]` berisi `"halo"`, dan `argv[2]` berisi `"dunia"`.
+Jika program dijalankan dengan `./program halo dunia`, maka `argv[0]` berisi nama program, `argv[1]` berisi `"halo"`, dan `argv[2]` berisi `"dunia"`.
 
 ---
 
-## 7.2 Array vs pointer: mirip, tapi bukan hal yang sama
+## 7.2 Array dan Pointer adalah Konsep yang Berbeda
 
-Bab 5 menjelaskan bahwa nama array sering decay menjadi pointer. Dari sini banyak orang menyimpulkan "array sama dengan pointer". Kesimpulan itu salah. Array dan pointer memang sering berperilaku mirip dalam ekspresi, tetapi keduanya tetap konsep yang berbeda.
-
-```c
-int arr[5] = {1,2,3,4,5};
-int *p = arr;            // decay: p = &arr[0]
-```
-
-Persamaannya: `arr[i]`, `*(arr+i)`, `p[i]`, dan `*(p+i)` menghasilkan nilai yang sama. Namun perbedaannya penting.
-
-### Perbedaan 1: `sizeof`
+Bab 5 menjelaskan bahwa nama array dapat mengalami decay menjadi pointer ke elemen pertamanya. Aturan ini sering membuat pemula menyimpulkan bahwa array sama dengan pointer. Kesimpulan tersebut keliru. Array dan pointer memang dapat digunakan dengan sintaks yang mirip pada beberapa konteks, tetapi keduanya tetap memiliki makna dan perilaku yang berbeda.
 
 ```c
-printf("%zu\n", sizeof(arr));   // 20 (5 int x 4 byte) — ukuran seluruh array
-printf("%zu\n", sizeof(p));     // 8  — ukuran pointer (alamat), bukan array
+int arr[5] = {1, 2, 3, 4, 5};
+int *p = arr;            // arr decay menjadi &arr[0]
 ```
 
-`arr` masih membawa informasi bahwa ia adalah array berisi 5 `int`, sehingga `sizeof(arr)` menghasilkan ukuran seluruh array. `p` hanya variabel yang menyimpan alamat, sehingga `sizeof(p)` menghasilkan ukuran pointer.
+Ekspresi `arr[i]`, `*(arr + i)`, `p[i]`, dan `*(p + i)` menghasilkan nilai yang sama pada contoh di atas. Kesamaan ini tidak berarti `arr` dan `p` adalah jenis objek yang sama.
 
-Ini juga menjelaskan ulang Bab 5: ketika fungsi menerima parameter `int arr[]`, parameter itu sudah diperlakukan sebagai pointer. Karena itu fungsi tidak bisa mengetahui panjang array hanya dari parameter tersebut.
+### Perbedaan 1 - `sizeof`
 
-### Perbedaan 2: array tidak bisa "dipindah-arahkan"
+```c
+printf("%zu\n", sizeof(arr));   // 20 jika int berukuran 4 byte
+printf("%zu\n", sizeof(p));     // ukuran pointer
+```
+
+`sizeof(arr)` menghasilkan ukuran seluruh array. Jika `arr` berisi 5 elemen `int` dan setiap `int` berukuran 4 byte, hasilnya adalah 20 byte. Sebaliknya, `sizeof(p)` menghasilkan ukuran pointer, bukan ukuran array yang ditunjuk. Pada sistem 64-bit, ukuran pointer umumnya 8 byte.
+
+Perbedaan ini juga menjelaskan mengapa fungsi yang menerima parameter `int arr[]` tidak dapat mengetahui panjang array hanya dari parameter tersebut. Di parameter fungsi, array sudah disesuaikan menjadi pointer.
+
+### Perbedaan 2 - Array Tidak Dapat Diarahkan Ulang
 
 ```c
 int a[5], b[5];
 int *p = a;
-p = b;          // ok: pointer boleh diarahkan ulang ke array lain
-a = b;          // error: nama array bukan variabel yang bisa di-assign
+
+p = b;          // valid
+a = b;          // tidak valid
 ```
 
-`a` bukan variabel pointer. `a` adalah nama untuk blok memori array tersebut. Kamu tidak bisa membuat `a` menunjuk ke array lain. Sebaliknya, `p` memang variabel pointer, sehingga isinya bisa diganti dengan alamat lain.
+Pointer adalah variabel yang dapat diisi alamat baru. Array bukan variabel pointer. Nama array merepresentasikan blok memori dengan ukuran tetap dan lokasi yang tetap selama masa hidupnya. Karena itu, nama array tidak dapat diberi nilai array lain.
 
-Ini menegaskan perbedaannya: array adalah blok memori dengan lokasi tetap, sedangkan pointer adalah variabel yang menyimpan alamat dan bisa diarahkan ulang.
+### Perbedaan 3 - `&arr` dan `&p` Memiliki Tipe Berbeda
 
-### Perbedaan 3: `&arr` vs `&p`
+Jika `arr` dideklarasikan sebagai `int arr[5]`, maka `&arr` bertipe `int (*)[5]`, yaitu pointer ke array berisi 5 `int`. Alamat numeriknya sama dengan alamat elemen pertama, tetapi tipe hasilnya berbeda. Akibatnya, ekspresi `&arr + 1` bergerak sejauh satu array penuh, bukan sejauh satu elemen.
 
-`&arr` bertipe "pointer to array of 5 int", yaitu `int (*)[5]`. Nilai alamatnya mungkin sama dengan `arr`, tetapi tipenya berbeda. Karena tipenya pointer ke seluruh array, `&arr + 1` melompat **20 byte**, yaitu satu array penuh.
+Sementara itu, jika `p` dideklarasikan sebagai `int *p`, maka `&p` bertipe `int **`, yaitu pointer ke variabel pointer.
 
-Ini memang detail yang jarang dipakai pemula, tetapi berguna untuk memahami bahwa array punya identitas tipe sendiri. Ia bukan pointer biasa.
+### Parameter `int arr[]` dan `int *arr`
 
-### Lalu kenapa fungsi `void f(int arr[])` sebenarnya `void f(int *arr)`?
+Pada parameter fungsi, penulisan berikut diperlakukan sama oleh compiler.
 
-Karena saat array dikirim ke fungsi, array **decay** menjadi pointer ke elemen pertamanya. Dalam parameter fungsi, compiler memperlakukan `int arr[]` dan `int *arr` sebagai tipe yang sama. Tulisan `int arr[]` di parameter lebih merupakan dokumentasi niat: parameter ini dimaksudkan sebagai array. Secara teknis, yang diterima fungsi adalah pointer.
+```c
+void f(int arr[]);
+void f(int *arr);
+```
 
-Jadi, array dan pointer berbeda. Array adalah blok memori dengan ukuran dan lokasi tetap. Pointer adalah variabel yang menyimpan alamat dan bisa diarahkan ulang. Keduanya sering bertemu karena aturan decay.
+Penulisan `int arr[]` pada parameter dapat membantu pembaca memahami bahwa fungsi tersebut menerima deretan elemen. Namun secara tipe, parameter tersebut tetap pointer. Karena itu, informasi panjang array harus dikirim secara terpisah jika fungsi membutuhkannya.
+
+Array adalah blok memori berukuran tetap. Pointer adalah variabel yang menyimpan alamat dan dapat diarahkan ulang. Aturan decay membuat keduanya sering dipakai berdampingan, tetapi tidak menghapus perbedaan konsep di antara keduanya.
 
 ---
 
-## 7.3 `const` correctness: kontrak yang dijaga compiler
+## 7.3 Ketepatan Penggunaan `const`
 
-Kita sudah mengenal `const` di Bab 2 dan Bab 6. Sekarang kita pakai lebih serius, karena di kode C nyata `const` sering muncul pada parameter pointer.
+`const` pada parameter pointer digunakan untuk menyatakan bahwa data yang ditunjuk tidak akan diubah melalui pointer tersebut. Pada kode C yang baik, `const` bukan sekadar hiasan sintaks. `const` adalah bagian dari kontrak fungsi yang dapat diperiksa oleh compiler.
 
-Ingat aturan baca dari Bab 6:
+Tiga bentuk deklarasi berikut perlu dibedakan.
 
-- `const int *p` atau `int const *p` -> **pointer to const int**. Isi yang ditunjuk tidak boleh diubah lewat `p`, tetapi `p` boleh diarahkan ulang.
-- `int *const p` -> **const pointer to int**. Isi yang ditunjuk boleh diubah, tetapi `p` tidak boleh diarahkan ulang.
-- `const int *const p` -> isi dan arah pointer sama-sama tidak boleh diubah.
+- `const int *p` atau `int const *p` berarti pointer ke `int` yang tidak boleh diubah melalui `p`. Nilai `p` masih dapat diarahkan ke alamat lain.
+- `int *const p` berarti pointer konstan ke `int`. Data yang ditunjuk dapat diubah, tetapi `p` tidak dapat diarahkan ulang.
+- `const int *const p` berarti pointer konstan ke data yang tidak boleh diubah melalui pointer tersebut.
 
-Cara membacanya dimulai dari nama variabel, lalu bergerak keluar. `int * const p` berarti "p adalah const pointer to int". `const int *p` berarti "p adalah pointer ke int yang const".
+Cara membacanya adalah dari kanan ke kiri. Deklarasi `int *const p` berarti `p` adalah pointer konstan ke `int`. Deklarasi `const int *p` berarti `p` adalah pointer ke `int` yang diperlakukan sebagai konstan melalui pointer tersebut.
 
-### Kenapa `const` penting di parameter fungsi
+### `const` pada Parameter Fungsi
+
+Beberapa fungsi pustaka standar menggunakan `const` untuk membedakan parameter yang hanya dibaca dan parameter yang dapat ditulis.
 
 ```c
 size_t strlen(const char *s);
@@ -177,67 +171,61 @@ int strcmp(const char *a, const char *b);
 void *memcpy(void *dst, const void *src, size_t n);
 ```
 
-Perhatikan polanya. Parameter yang hanya dibaca diberi `const`; parameter tujuan yang akan ditulis tidak diberi `const`. Ini bukan sekadar gaya, melainkan **kontrak yang ditegakkan compiler**.
-
-Manfaatnya:
-
-1. **Dokumentasi yang dijamin.** `const char *s` memberi tahu pemanggil bahwa fungsi tidak akan mengubah string yang dikirim. Jika implementasi fungsi mencoba menulis ke `s`, compiler akan menolak.
-2. **Mencegah bug lebih awal.** Perubahan yang tidak seharusnya terjadi bisa tertangkap saat compile, bukan saat program berjalan.
-3. **Lebih fleksibel untuk pemanggil.** String literal dari Bab 5 bersifat read-only. Kamu bisa mengirimnya ke fungsi yang menerima `const char *`, tetapi tidak aman mengirimnya ke fungsi yang menerima `char *` biasa jika fungsi itu mungkin menulis.
+Parameter yang hanya dibaca diberi `const`. Parameter tujuan yang akan ditulis tidak diberi `const`. Dengan cara ini, tanda tangan fungsi menyampaikan niat fungsi secara jelas, dan compiler dapat menolak perubahan yang melanggar kontrak tersebut.
 
 ```c
-void cetak(const char *s) {        // janji: tak akan mengubah s
-    // s[0] = 'X';                  // error compile -> janji ditegakkan
+void cetak(const char *s) {
+    // s[0] = 'X';   // error karena s menunjuk data yang diperlakukan konstan
     printf("%s\n", s);
 }
 
 int main(void) {
-    cetak("literal");              // boleh kirim string literal (read-only)
+    cetak("literal");
     return 0;
 }
 ```
 
-Biasakan menandai parameter pointer yang hanya dibaca dengan `const`. Kode menjadi lebih jelas, lebih aman, dan lebih mudah dipakai oleh fungsi lain. Itulah yang disebut **const correctness**.
+Pada contoh di atas, `cetak` menerima `const char *` karena fungsi hanya membaca string. Jika ada kode di dalam fungsi yang mencoba mengubah `s[0]`, compiler dapat memberi error. Keuntungan lainnya adalah fungsi tersebut dapat menerima string literal, karena string literal tidak boleh dimodifikasi.
+
+Biasakan memberi `const` pada parameter pointer yang hanya dibaca. Praktik ini membuat fungsi lebih jelas, lebih aman, dan lebih mudah digunakan oleh pemanggil.
 
 ---
 
-## 7.4 Function pointer: pointer yang menunjuk ke kode
+## 7.4 Pointer ke Fungsi
 
-Sejauh ini pointer menunjuk ke **data**, seperti variabel, array, atau blok memori. Namun kode fungsi juga berada di memori, pada alamat tertentu. Karena itu, C juga memungkinkan pointer menyimpan **alamat sebuah fungsi**. Ini disebut **function pointer**.
+Pointer biasanya menunjuk ke data, seperti variabel atau elemen array. Dalam C, fungsi juga memiliki alamat di memori. Karena itu, C memungkinkan sebuah pointer menyimpan alamat fungsi. Pointer semacam ini disebut pointer ke fungsi.
 
-### Sintaks
+### Sintaks Dasar
 
 ```c
 int tambah(int a, int b) { return a + b; }
 
 int main(void) {
-    int (*op)(int, int);   // op adalah pointer ke fungsi yang terima (int,int) dan return int
-    op = tambah;           // arahkan op ke fungsi tambah (nama fungsi = alamatnya)
-    printf("%d\n", op(3, 4));   // 7 — panggil fungsi LEWAT pointer
+    int (*op)(int, int);
+    op = tambah;
+    printf("%d\n", op(3, 4));   // 7
     return 0;
 }
 ```
 
-Deklarasi `int (*op)(int, int)` dibaca seperti ini:
+Deklarasi `int (*op)(int, int)` dapat dibaca dengan urutan berikut.
 
 - `op` adalah variabel.
-- `(*op)` menunjukkan bahwa `op` adalah pointer. Kurung di sekitar `*op` penting. Tanpa kurung, `int *op(int,int)` berarti fungsi yang mengembalikan `int *`, bukan pointer ke fungsi.
-- `(int, int)` berarti fungsi yang ditunjuk menerima dua argumen `int`.
-- `int` di depan berarti fungsi yang ditunjuk mengembalikan `int`.
+- `(*op)` menunjukkan bahwa `op` adalah pointer.
+- `(int, int)` menunjukkan bahwa fungsi yang ditunjuk menerima dua parameter `int`.
+- `int` di depan menunjukkan bahwa fungsi tersebut mengembalikan `int`.
 
-Pemanggilan bisa ditulis sebagai `op(3, 4)` atau bentuk eksplisit `(*op)(3, 4)`. Keduanya sah. Nama fungsi, mirip nama array, bisa dipakai sebagai alamat fungsi. Karena itu `op = tambah` valid. `op = &tambah` juga boleh.
+Tanda kurung pada `(*op)` wajib digunakan. Tanpa tanda kurung, deklarasi `int *op(int, int)` berarti `op` adalah fungsi yang mengembalikan `int *`, bukan pointer ke fungsi.
 
-Function pointer bisa dibayangkan seperti variabel yang menyimpan "fungsi mana yang akan dipanggil". Kamu bisa mengubah nilainya agar menunjuk ke fungsi lain dengan signature yang sama.
+Pemanggilan pointer ke fungsi dapat ditulis sebagai `op(3, 4)` atau `(*op)(3, 4)`. Keduanya sah. Nama fungsi, seperti nama array pada konteks tertentu, dapat dikonversi menjadi alamatnya. Karena itu, `op = tambah` dan `op = &tambah` sama-sama dapat digunakan.
 
-### Kenapa ini penting: perilaku sebagai data
+### Kegunaan Pointer ke Fungsi
 
-Function pointer memungkinkan program memilih perilaku saat runtime dan mengirim perilaku sebagai argumen. Dengan kata lain, program tidak hanya mengirim data ke fungsi lain, tetapi juga bisa mengirim "cara bekerja" yang akan dipanggil nanti.
+Pointer ke fungsi memungkinkan program memilih perilaku saat waktu eksekusi dan mengirim fungsi sebagai argumen. Pola ini digunakan untuk callback, tabel dispatch, dan algoritma generik.
 
-Ada tiga kegunaan besar.
+Callback adalah pola ketika sebuah fungsi diberikan kepada kode lain agar dipanggil kembali pada waktu tertentu. Pola ini umum pada event handler, signal handler, thread start routine, dan API pustaka.
 
-**1. Callback — "panggil fungsi ini nanti".** Kamu memberikan fungsi ke kode lain, lalu kode itu memanggilnya kembali saat dibutuhkan.
-
-**2. Tabel dispatch, sebagai alternatif untuk `switch` panjang.**
+Tabel dispatch menggunakan array berisi pointer ke fungsi untuk memilih fungsi berdasarkan indeks atau kode operasi.
 
 ```c
 #include <stdio.h>
@@ -247,7 +235,6 @@ int kurang(int a, int b) { return a - b; }
 int kali (int a, int b) { return a * b; }
 
 int main(void) {
-    // array of function pointer: "tabel operasi"
     int (*tabel[3])(int, int) = { tambah, kurang, kali };
     const char *nama[3] = { "+", "-", "*" };
 
@@ -257,99 +244,98 @@ int main(void) {
 }
 ```
 
-Daripada menulis `switch (op)` panjang berisi banyak `case`, kamu bisa memakai indeks ke array fungsi. Pola ini dipakai di interpreter atau virtual machine, misalnya sebagai tabel opcode: setiap opcode dipetakan ke fungsi penanganannya.
+Dengan tabel seperti ini, program dapat memilih fungsi berdasarkan indeks tanpa menulis percabangan panjang. Pola yang sama sering digunakan pada interpreter, virtual machine, dan driver yang memiliki tabel operasi.
 
-**3. Generic algorithm via callback — contoh nyata: `qsort`.** Fungsi `qsort` di standard library bisa mengurutkan array bertipe apa pun karena kamu memberinya **function pointer** yang tahu cara membandingkan dua elemen.
+Contoh pointer ke fungsi yang sangat penting adalah fungsi pembanding untuk `qsort`.
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 
-// fungsi pembanding: qsort akan memanggil ini untuk tiap pasangan
 int banding(const void *a, const void *b) {
-    int x = *(const int *)a;       // a, b itu void* -> cast ke int* lalu dereference
+    int x = *(const int *)a;
     int y = *(const int *)b;
-    return (x > y) - (x < y);      // <0 kalau x<y, 0 kalau sama, >0 kalau x>y
-                                   // (hindari 'x - y' yang bisa overflow utk nilai ekstrem)
+    return (x > y) - (x < y);
 }
 
 int main(void) {
     int arr[] = {5, 2, 8, 1, 9, 3};
-    int n = sizeof(arr) / sizeof(arr[0]);
+    size_t n = sizeof(arr) / sizeof(arr[0]);
 
-    qsort(arr, n, sizeof(arr[0]), banding);   // <- kirim function pointer 'banding'
+    qsort(arr, n, sizeof(arr[0]), banding);
 
-    for (int i = 0; i < n; i++)
-        printf("%d ", arr[i]);     // 1 2 3 5 8 9
+    for (size_t i = 0; i < n; i++)
+        printf("%d ", arr[i]);
     printf("\n");
     return 0;
 }
 ```
 
-`qsort` ditulis sekali, tetapi bisa mengurutkan `int`, `double`, `struct`, dan tipe lain. Caranya, logika pembanding disisipkan lewat function pointer `banding`. Di sini konsep `void *` dari Bab 6 dan `const` dari Bab 7 juga muncul bersama.
+`qsort` dapat mengurutkan array dengan tipe elemen apa pun karena ia tidak perlu mengetahui makna setiap elemen. Fungsi pembanding yang diberikan oleh pemanggil menentukan urutan elemen. Parameter `void *` memungkinkan `qsort` bekerja dengan alamat elemen dari berbagai tipe, sedangkan `const` menyatakan bahwa fungsi pembanding hanya membaca elemen.
 
-Di system programming, function pointer muncul di banyak tempat. Signal handler di Bab 15 adalah fungsi yang didaftarkan untuk dipanggil saat signal datang. `pthread_create` di Bab 17 menerima function pointer sebagai start routine thread. Driver kernel sering menyimpan tabel function pointer untuk operasi seperti `open`, `read`, dan `write`.
+### `typedef` untuk Pointer ke Fungsi
 
-### `typedef` untuk function pointer
-
-Sintaks function pointer bisa sulit dibaca. `typedef` membuatnya lebih manusiawi:
+Sintaks pointer ke fungsi dapat sulit dibaca, terutama jika dipakai berulang kali. `typedef` dapat digunakan untuk memberi nama pada tipe pointer ke fungsi.
 
 ```c
-typedef int (*Operasi)(int, int);   // Operasi = "pointer ke fungsi (int,int)->int"
+typedef int (*Operasi)(int, int);
 
-Operasi op = tambah;                 // jauh lebih enak dibaca
-int (*tabel[3])(int, int);           // tanpa typedef
-Operasi tabel2[3];                   // dengan typedef — lebih jelas
+Operasi op = tambah;
+int (*tabel[3])(int, int);
+Operasi tabel2[3];
 ```
 
-Di kode nyata, function pointer sering diberi `typedef` agar deklarasi variabel, parameter, dan array lebih mudah dibaca.
+Dengan `typedef`, deklarasi variabel dan array pointer ke fungsi menjadi lebih ringkas. Pada kode C yang besar, pointer ke fungsi sering diberi `typedef` agar tanda tangan fungsi lebih mudah dibaca dan dipertahankan.
 
 ---
 
-## 7.5 Pointer ke struct (jembatan ke Bab 8)
+## 7.5 Pointer ke Struct
 
-Di Bab 8, kamu akan sering memakai pointer ke `struct`. Akses field lewat pointer memakai operator `->`, yang merupakan singkatan dari dereference lalu akses field:
+Pointer ke `struct` akan sering digunakan ketika bekerja dengan data berukuran besar atau struktur data dinamis. Untuk mengakses anggota `struct` melalui pointer, C menyediakan operator `->`.
 
 ```c
 p->nama        // setara dengan (*p).nama
 ```
 
-Kita akan membahasnya lebih lengkap di Bab 8. Untuk sekarang, cukup tahu bahwa pointer juga menjadi cara utama bekerja dengan struct, terutama struct besar dan struktur data dinamis.
+Pembahasan lengkap tentang `struct`, termasuk penggunaan pointer ke `struct`, akan dibahas pada Bab 8.
 
 ---
 
-## 7.6 Rangkuman model mental
+## 7.6 Rangkuman Model Mental
 
-1. **Pointer to pointer (`T **`)** adalah pointer ke pointer. Dereference dua kali (`**pp`) untuk sampai ke nilai akhirnya. Ini berguna untuk fungsi yang mengubah pointer pemanggil (`T **out`) dan untuk array of strings seperti `char **argv`.
-2. **Array berbeda dari pointer**, walaupun sering berperilaku mirip karena decay. Perbedaannya terlihat pada `sizeof`, kemampuan pointer untuk diarahkan ulang, dan tipe khusus seperti `&arr`.
-3. **`const` correctness** berarti menandai parameter pointer yang hanya dibaca dengan `const`. Ini menjadi kontrak yang dicek compiler, membantu dokumentasi, dan mencegah bug.
-4. **Function pointer** adalah pointer ke kode/fungsi. Ini memungkinkan callback, tabel dispatch, dan generic algorithm seperti `qsort`. Sintaks dasarnya: `int (*op)(int,int)`.
-5. Function pointer adalah fondasi banyak callback di system programming: signal handler, thread start routine, dan tabel operasi driver.
-
----
-
-## 7.7 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Buat `int x = 5; int *p = &x; int **pp = &p;`. Cetak `x`, `*p`, `**pp`, dan juga `p`, `*pp` (keduanya alamat — bandingkan). Lalu ubah `x` menjadi 50 lewat `**pp` saja.
-2. Tulis `void alokasi(int **out)` dari Bagian 7.1 yang men-`malloc` sebuah `int` dan mengeset `*out`. Buktikan `p` di `main`, yang awalnya `NULL`, menjadi pointer ke memori valid. Lalu coba versi salah dengan parameter `int *out`. Kenapa `p` di `main` tetap `NULL`?
-3. Buat `int arr[5]` dan `int *p = arr`. Cetak `sizeof(arr)` dan `sizeof(p)`. Jelaskan kenapa berbeda. Lalu kirim `arr` ke sebuah fungsi dan cetak `sizeof` parameternya di dalam fungsi. Berapa hasilnya?
-4. Tulis fungsi `void cetak(const char *s)`, lalu coba `s[0] = 'X';` di dalamnya. Apa kata compiler? Hapus `const`. Apakah sekarang boleh?
-5. Buat program kalkulator memakai array of function pointer (`tambah`, `kurang`, `kali`, `bagi`) yang dipilih berdasarkan karakter operator. Bandingkan dengan versi `switch`. Mana yang lebih rapi menurutmu?
-6. Pakai `qsort` untuk mengurutkan array `int` secara **menurun** (descending). Petunjuk: ubah fungsi `banding`.
-7. Tulis `typedef` untuk function pointer `int (*)(int, int)`, lalu gunakan untuk mendeklarasikan variabel dan array. Bandingkan keterbacaannya dengan versi tanpa `typedef`.
-
-**Pertanyaan refleksi:**
-
-1. Dengan analogi alamat berlapis, jelaskan apa itu `int **` dan kenapa butuh dereference dua kali.
-2. Sebutkan dua situasi nyata di mana kamu butuh pointer-to-pointer.
-3. Sebutkan tiga perbedaan konkret antara array dan pointer. Kenapa "array = pointer" itu salah?
-4. Kenapa `const char *s` di parameter fungsi berguna, bukan hanya untukmu, tetapi juga untuk pemanggil fungsimu?
-5. Apa yang membuat function pointer berbeda dari pointer biasa? Apa yang ia tunjuk?
-6. Jelaskan bagaimana `qsort` bisa mengurutkan tipe data apa pun. Apa peran function pointer dan `void *` di situ?
-7. Sebutkan tiga tempat di system programming di mana function pointer atau callback dipakai.
+1. Pointer ke pointer `T **` adalah pointer yang menunjuk ke pointer lain. Dereference dilakukan dua kali untuk mencapai data akhir.
+2. Pointer ke pointer berguna ketika fungsi perlu mengubah pointer milik pemanggil dan ketika program bekerja dengan array berisi string seperti `char **argv`.
+3. Array dan pointer bukan konsep yang sama. Array adalah blok memori berukuran tetap, sedangkan pointer adalah variabel yang menyimpan alamat dan dapat diarahkan ulang.
+4. Pada parameter fungsi, array mengalami penyesuaian menjadi pointer. Karena itu, panjang array harus dikirim secara terpisah jika dibutuhkan.
+5. `const` pada parameter pointer menyatakan bahwa data yang ditunjuk hanya dibaca melalui pointer tersebut.
+6. Pointer ke fungsi menyimpan alamat fungsi dan memungkinkan program menggunakan callback, tabel dispatch, serta algoritma generik seperti `qsort`.
+7. `typedef` dapat membuat deklarasi pointer ke fungsi lebih mudah dibaca.
 
 ---
 
-Kita sudah membahas pointer dari dasar sampai konsep lanjutan yang sering muncul di kode C nyata. Di Bab 8, kita masuk ke **struct, union, dan enum**: cara C membuat tipe data majemuk, serta bagaimana data tersebut ditata di memori melalui padding, alignment, dan urutan field.
+## 7.7 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Buat `int x = 5; int *p = &x; int **pp = &p;`. Cetak `x`, `*p`, `**pp`, `p`, dan `*pp`. Ubah `x` menjadi `50` hanya melalui `**pp`.
+2. Tulis fungsi `void alokasi(int **out)` yang melakukan `malloc` untuk satu `int` dan mengisi `*out`. Buktikan bahwa pointer di `main` yang awalnya `NULL` menjadi menunjuk memori valid. Setelah itu, tulis versi salah dengan parameter `int *out` dan jelaskan mengapa pointer di `main` tetap `NULL`.
+3. Buat `int arr[5]` dan `int *p = arr`. Cetak `sizeof(arr)` dan `sizeof(p)`. Jelaskan mengapa hasilnya berbeda. Kirim `arr` ke sebuah fungsi dan cetak `sizeof` parameter di dalam fungsi tersebut.
+4. Tulis fungsi `void cetak(const char *s)`, lalu coba ubah `s[0]` di dalam fungsi. Amati pesan compiler. Hapus `const` dan bandingkan perilakunya.
+5. Buat program kalkulator dengan array berisi pointer ke fungsi untuk operasi tambah, kurang, kali, dan bagi. Pilih operasi berdasarkan karakter operator.
+6. Gunakan `qsort` untuk mengurutkan array `int` secara menurun. Ubah fungsi `banding` agar menghasilkan urutan descending.
+7. Tulis `typedef` untuk pointer ke fungsi bertipe `int (*)(int, int)`, lalu gunakan untuk mendeklarasikan variabel dan array.
+
+### Pertanyaan Refleksi
+
+1. Jelaskan apa itu `int **` dan mengapa dereference perlu dilakukan dua kali.
+2. Sebutkan dua situasi nyata yang membutuhkan pointer ke pointer.
+3. Sebutkan tiga perbedaan konkret antara array dan pointer.
+4. Jelaskan manfaat `const char *s` pada parameter fungsi.
+5. Jelaskan perbedaan pointer ke fungsi dengan pointer biasa.
+6. Jelaskan bagaimana `qsort` dapat mengurutkan tipe data yang berbeda-beda.
+7. Sebutkan tiga contoh penggunaan pointer ke fungsi pada pemrograman sistem.
+
+---
+
+Bab ini menyelesaikan pembahasan pointer dari dasar hingga konsep lanjutan yang sering muncul dalam kode C. Bab 8 akan membahas `struct`, `union`, dan `enum`, termasuk bagaimana data majemuk ditata di memori melalui padding dan alignment.
+

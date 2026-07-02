@@ -1,442 +1,454 @@
 ---
-title: "Bab 2 — Tipe Data, Variabel & Representasi di Memori"
-description: "Di Bab 1, kita melihat perjalanan kode sampai menjadi program yang bisa dijalankan. Sekarang kita masuk ke bahan paling dasar yang dipakai program: data. Apa itu int?..."
-tags: [c, system-programming]
+title: "Bab 2 - Tipe Data, Variabel, dan Representasi Memori"
+description: "Di komputer, data disimpan sebagai bit. Makna dari bit tersebut ditentukan oleh cara program membacanya."
+tags: [c, systems-programming]
 order: 2
-updated: 2026-06-20
+updated: 2026-07-02
+---
+> Di komputer, data disimpan sebagai bit. Makna dari bit tersebut ditentukan oleh cara program membacanya.
+
+Pada Bab 1, kita membahas bagaimana source code diterjemahkan menjadi program executable. Pada bab ini, fokusnya adalah data. Kita akan membahas apa itu `int`, `char`, `float`, dan `double`, bagaimana variabel disimpan, serta bagaimana nilai direpresentasikan di memori.
+
+Pembahasan ini penting karena banyak perilaku C yang terlihat aneh sebenarnya berasal dari cara data direpresentasikan. Overflow, keterbatasan floating point, endianness, dan konversi signed atau unsigned semuanya berhubungan langsung dengan bit dan byte.
+
 ---
 
-> "Di komputer, tidak ada angka dalam arti manusiawi. Yang ada hanya bit. 'Angka' adalah cara kita menafsirkan bit-bit itu."
+## 2.1 Memori sebagai Deretan Byte
 
-Di Bab 1, kita melihat perjalanan kode sampai menjadi program yang bisa dijalankan. Sekarang kita masuk ke bahan paling dasar yang dipakai program: **data**. Apa itu `int`? Apa itu `char`? Di mana nilainya disimpan, dan dalam bentuk apa?
+Memori utama atau RAM dapat dipahami sebagai deretan byte yang masing-masing memiliki alamat. Satu byte terdiri dari 8 bit, dan pada kebanyakan sistem, byte adalah unit terkecil yang memiliki alamat sendiri.
 
-Beberapa bagian bab ini memang sedikit matematis. Namun, begitu kamu paham bahwa semua data hanyalah deretan bit yang **diinterpretasikan** berdasarkan tipe, banyak perilaku C yang awalnya terasa aneh akan mulai masuk akal. Overflow, `float` yang tidak selalu presisi, dan bug karena konversi signed/unsigned semuanya berawal dari cara bit dibaca sebagai nilai tertentu.
+Contoh isi memori dapat digambarkan sebagai berikut.
 
----
-
-## 2.1 Memori itu cuma deretan kotak bernomor
-
-Bayangkan **memori (RAM)** sebagai deretan kotak yang sangat panjang. Setiap kotak:
-
-- Berukuran **1 byte** (= 8 **bit**).
-- Memiliki **alamat** unik, berupa angka: 0, 1, 2, 3, dan seterusnya.
-
-```
-alamat:   1000   1001   1002   1003   1004   1005  ...
-        +------+------+------+------+------+------+
-isi:    | 0x48 | 0x61 | 0x6C | 0x6F | 0x00 | ...  |
-        +------+------+------+------+------+------+
+```text
+alamat   1000   1001   1002   1003   1004   1005
+       +------+------+------+------+------+------+
+isi    | 0x48 | 0x61 | 0x6C | 0x6F | 0x00 | ...  |
+       +------+------+------+------+------+------+
 ```
 
-Setiap kotak menyimpan satu byte, yaitu angka 0 sampai 255. **Hanya itu.** Memori tidak tahu apakah byte di alamat 1000 adalah huruf, bagian dari sebuah angka, atau potongan instruksi. Memori hanya menyimpan angka 0-255 per kotak.
+Setiap alamat menyimpan satu byte, yaitu nilai dari 0 sampai 255. Memori tidak mengetahui apakah byte tersebut adalah karakter, angka, bagian dari instruksi, atau bagian dari struktur data. Memori hanya menyimpan nilai biner.
 
-Maknanya ditentukan oleh kode yang membaca byte tersebut. Dalam C, tipe data memberi tahu compiler bagaimana byte-byte itu harus diperlakukan. Saat kamu menulis `int x;`, kamu memberi tahu compiler untuk menyediakan beberapa byte berurutan, lalu memperlakukan byte-byte itu sebagai integer. Tipe adalah **cara membaca** byte mentah.
+Makna dari byte ditentukan oleh tipe data dan instruksi yang digunakan program. Ketika menulis `int x;`, programmer meminta compiler menyediakan sejumlah byte dan memperlakukan byte tersebut sebagai integer. Ketika menulis `char c;`, byte yang tersedia dibaca sebagai karakter atau integer kecil.
 
-Ide utama bab ini adalah bahwa byte tidak membawa makna tunggal secara bawaan.
+Prinsip penting pada bab ini adalah bahwa byte yang sama dapat memiliki makna berbeda, tergantung tipe yang digunakan untuk membacanya.
 
-> **Byte yang sama persis bisa berarti hal berbeda, tergantung tipe yang dipakai untuk membacanya.**
+### Bit, Byte, dan Word
 
-Nanti kita akan membuktikannya dengan kode.
+- Bit adalah unit data terkecil yang bernilai 0 atau 1.
+- Byte terdiri dari 8 bit dan biasanya menjadi unit terkecil yang memiliki alamat.
+- Word adalah ukuran data yang alami bagi CPU tertentu. Pada mesin 64-bit, word sering berukuran 8 byte atau 64 bit.
 
-### Bit, byte, dan "word"
-
-- **bit** — unit terkecil, nilainya hanya 0 atau 1.
-- **byte** — 8 bit. Di kebanyakan sistem, byte adalah unit terkecil yang punya alamat sendiri. Satu byte bisa menyimpan 2^8 = 256 nilai berbeda, dari 0 sampai 255.
-- **word** — ukuran "alami" yang nyaman diproses CPU dalam satu operasi. Di mesin 64-bit, word umumnya 8 byte atau 64 bit. Ini terkait dengan ukuran register CPU dan lebar bus.
+Ukuran word berkaitan dengan register CPU, lebar operasi tertentu, dan cara hardware memproses data secara efisien.
 
 ---
 
-## 2.2 Variabel: nama untuk sepetak memori
+## 2.2 Variabel sebagai Nama untuk Lokasi Memori
 
-Saat kamu menulis:
+Perhatikan deklarasi berikut.
 
 ```c
 int umur = 25;
 ```
 
-yang terjadi kira-kira seperti ini:
+Secara konseptual, compiler menyiapkan ruang sebesar `sizeof(int)` byte untuk menyimpan nilai tersebut. Pada banyak sistem modern, `int` berukuran 4 byte. Nama `umur` digunakan oleh programmer untuk merujuk ke lokasi memori tersebut.
 
-1. Compiler menyiapkan ruang sebesar `sizeof(int)` byte di memori. Di banyak mesin modern, `int` biasanya 4 byte.
-2. Nama `umur` menjadi **label** yang dipakai programmer untuk merujuk ke ruang memori itu. CPU sendiri tidak mengenal nama `umur`; di machine code, yang dipakai adalah alamat atau register.
-3. Nilai `25` ditulis ke byte-byte tersebut dalam bentuk biner.
+CPU tidak bekerja dengan nama variabel seperti `umur`. Setelah program dikompilasi, nama variabel diterjemahkan menjadi alamat, offset, atau register tertentu. Nama variabel terutama berguna pada level source code.
 
-Variabel bisa dibayangkan seperti loker yang diberi label. Lokernya, yaitu memori dan alamatnya, benar-benar ada. Labelnya, seperti `umur`, membantu manusia menulis program. Setelah program menjadi machine code, label itu tidak lagi dipakai oleh CPU sebagai nama; yang ada adalah alamat, offset, atau register.
-
-Mari lihat ukuran dan alamat sebuah variabel:
+Contoh berikut menunjukkan nilai, ukuran, dan alamat sebuah variabel.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
     int umur = 25;
-    printf("nilai   : %d\n", umur);
-    printf("ukuran  : %zu byte\n", sizeof(umur));
-    printf("alamat  : %p\n", (void *)&umur);
+    printf("nilai   = %d\n", umur);
+    printf("ukuran  = %zu byte\n", sizeof(umur));
+    printf("alamat  = %p\n", (void *)&umur);
     return 0;
 }
 ```
 
-Beberapa hal penting dari kode ini:
+Beberapa hal penting dari contoh tersebut.
 
-- `sizeof(umur)` menghasilkan ukuran dalam byte. Operator `sizeof` dihitung saat **compile time**, bukan runtime.
-- `&umur` memakai operator **address-of**, yaitu operator untuk mengambil **alamat** memori sebuah variabel. Ini akan menjadi dasar pointer di Bab 6.
-- `%p` adalah format specifier untuk mencetak alamat atau pointer.
-- `%zu` adalah format untuk tipe `size_t`, yaitu tipe hasil dari `sizeof`.
+- `sizeof(umur)` menghasilkan ukuran variabel dalam byte.
+- `&umur` mengambil alamat memori dari variabel `umur`.
+- `%p` digunakan untuk mencetak alamat pointer.
+- `%zu` digunakan untuk mencetak nilai bertipe `size_t`, yaitu tipe hasil dari `sizeof`.
 
-Jalankan program itu beberapa kali. `nilai` dan `ukuran` akan tetap sama, tetapi `alamat` bisa berubah setiap run. Salah satu penyebabnya adalah fitur keamanan OS bernama **ASLR** (Address Space Layout Randomization), yang mengacak alamat agar program lebih sulit diserang. Kita akan membahasnya lagi di Bab 21.
+Jika program dijalankan beberapa kali, alamat variabel dapat berubah. Salah satu penyebabnya adalah ASLR atau Address Space Layout Randomization, fitur keamanan sistem operasi yang mengacak tata letak alamat memori proses.
 
 ---
 
-## 2.3 Tipe-tipe dasar C dan ukurannya
+## 2.3 Tipe Dasar C dan Ukurannya
 
-C punya beberapa tipe dasar. Satu hal yang sering membingungkan adalah bahwa **ukuran tipe tidak selalu dijamin sama di semua platform**. Standar C hanya menjamin ukuran minimum dan beberapa hubungan relatif antar tipe. Misalnya, `sizeof(char)` selalu 1 byte, tetapi ukuran `int`, `long`, dan pointer bisa berbeda antar arsitektur dan sistem operasi. Di x86-64 Linux yang umum dipakai, ukurannya biasanya seperti ini:
+C menyediakan beberapa tipe dasar. Ukuran tipe tidak selalu sama di semua platform. Standar C menetapkan ukuran minimum dan hubungan relatif antar tipe, tetapi tidak selalu menetapkan ukuran pasti dalam byte.
 
-| Tipe | Ukuran umum (byte) | Untuk apa |
-|------|--------------------|-----------|
-| `char` | 1 | satu karakter / byte mentah |
-| `short` | 2 | integer kecil |
-| `int` | 4 | integer "default" |
-| `long` | 8 (Linux 64-bit) | integer besar |
-| `long long` | 8 | integer besar (dijamin >= 8) |
-| `float` | 4 | bilangan pecahan, presisi tunggal |
-| `double` | 8 | bilangan pecahan, presisi ganda |
+Pada sistem x86-64 Linux yang umum, ukuran tipe biasanya seperti berikut.
 
-> Karena ukuran tipe bisa berbeda antar platform, system programmer sering memakai tipe berukuran pasti dari `<stdint.h>`: `int8_t`, `uint8_t`, `int16_t`, `int32_t`, `uint64_t`, dan seterusnya. `uint32_t` selalu 32 bit. Ini penting saat membaca format file biner atau protokol jaringan, karena jumlah byte harus tepat.
+| Tipe | Ukuran umum | Kegunaan |
+|------|-------------|----------|
+| `char` | 1 byte | Karakter atau byte mentah |
+| `short` | 2 byte | Integer kecil |
+| `int` | 4 byte | Integer umum |
+| `long` | 8 byte pada Linux 64-bit | Integer besar |
+| `long long` | 8 byte | Integer besar |
+| `float` | 4 byte | Bilangan pecahan presisi tunggal |
+| `double` | 8 byte | Bilangan pecahan presisi ganda |
 
-Kamu bisa membuktikan ukuran tipe di mesinmu sendiri dengan `sizeof`.
+Karena ukuran tipe dapat berbeda antarplatform, system programmer sering menggunakan tipe dari `<stdint.h>` ketika membutuhkan ukuran yang pasti. Contohnya adalah `int8_t`, `uint8_t`, `int16_t`, `int32_t`, dan `uint64_t`.
+
+Tipe berukuran pasti penting saat membaca format file biner, protokol jaringan, data hardware, atau struktur data yang harus memiliki ukuran tertentu.
+
+Program berikut dapat digunakan untuk memeriksa ukuran tipe di mesin yang digunakan.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
-    printf("char       : %zu\n", sizeof(char));
-    printf("short      : %zu\n", sizeof(short));
-    printf("int        : %zu\n", sizeof(int));
-    printf("long       : %zu\n", sizeof(long));
-    printf("long long  : %zu\n", sizeof(long long));
-    printf("float      : %zu\n", sizeof(float));
-    printf("double     : %zu\n", sizeof(double));
+    printf("char       = %zu\n", sizeof(char));
+    printf("short      = %zu\n", sizeof(short));
+    printf("int        = %zu\n", sizeof(int));
+    printf("long       = %zu\n", sizeof(long));
+    printf("long long  = %zu\n", sizeof(long long));
+    printf("float      = %zu\n", sizeof(float));
+    printf("double     = %zu\n", sizeof(double));
     return 0;
 }
 ```
 
 ---
 
-## 2.4 Integer: bagaimana angka disimpan sebagai biner
+## 2.4 Representasi Integer dalam Biner
 
-Komputer memakai **basis 2 (biner)**, bukan basis 10. Artinya, tiap posisi digit bernilai kelipatan dua, bukan kelipatan sepuluh. Angka desimal `13`, misalnya, bisa ditulis sebagai berikut.
+Komputer menyimpan integer dalam basis 2. Angka desimal `13` dapat ditulis sebagai `1101` dalam biner.
 
-```
-desimal 13 = 8 + 4 + 1 = 1101 (biner)
+```text
+desimal 13 = 8 + 4 + 1 = 1101
 
-posisi bit:   ...  8   4   2   1
-                   1   1   0   1   = 13
-```
-
-Sebuah `unsigned char` berukuran 8 bit, sehingga bisa menyimpan nilai dari `00000000` (0) sampai `11111111` (255).
-
-### Heksadesimal: cara cepat baca bit
-
-Menulis deretan bit panjang itu melelahkan. Karena itu programmer sering memakai **hexadecimal (basis 16)**. Satu digit hex mewakili tepat 4 bit, sehingga lebih ringkas untuk membaca data biner.
-
-```
-biner   1101 = hex D
-biner   1111 = hex F
-biner   1111 1111 = hex FF = desimal 255
+posisi bit  ...  8   4   2   1
+                  1   1   0   1
 ```
 
-Di C, angka hex ditulis dengan awalan `0x`: `0xFF` berarti 255, `0x10` berarti 16. Awalan `0b` untuk biner juga tersedia di banyak compiler sebagai ekstensi, misalnya `0b1101`.
+Sebuah `unsigned char` berukuran 8 bit. Nilai terkecilnya adalah `00000000`, yaitu 0. Nilai terbesarnya adalah `11111111`, yaitu 255.
 
-### `signed` vs `unsigned`
+### Heksadesimal
 
-- **`unsigned`** — semua bit dipakai untuk menyimpan besaran. `unsigned char` bisa menyimpan 0 sampai 255. Tidak ada nilai negatif.
-- **`signed`** — bisa menyimpan nilai negatif. `int` secara default adalah signed. Pertanyaannya: bagaimana tanda minus disimpan sebagai bit?
+Heksadesimal atau basis 16 sering digunakan karena satu digit heksadesimal mewakili tepat 4 bit. Dengan demikian, byte dan nilai biner panjang lebih mudah dibaca.
 
-### Two's complement: trik menyimpan angka negatif
-
-Hampir semua komputer modern menyimpan integer negatif dengan representasi **two's complement**.
-
-Cara berpikirnya begini. Bit paling kiri, yaitu most significant bit atau **MSB**, bukan sekadar penanda negatif. Bit itu memiliki **bobot negatif**. Untuk 8 bit, bobot tiap posisi adalah sebagai berikut.
-
-```
-bobot:  -128  64  32  16   8   4   2   1
+```text
+biner 1101       = hex D
+biner 1111       = hex F
+biner 1111 1111  = hex FF = desimal 255
 ```
 
-Contoh, `-1` dalam 8 bit:
+Di C, nilai heksadesimal ditulis dengan awalan `0x`. Contohnya, `0xFF` bernilai 255 dan `0x10` bernilai 16. Beberapa compiler juga mendukung awalan `0b` untuk literal biner, meskipun dukungan ini bergantung pada standar dan compiler yang digunakan.
 
+### Signed dan Unsigned
+
+Tipe unsigned menggunakan seluruh bit untuk merepresentasikan nilai non-negatif. Contohnya, `unsigned char` berukuran 8 bit dapat menyimpan nilai 0 sampai 255.
+
+Tipe signed dapat menyimpan nilai negatif dan positif. Pada hampir semua komputer modern, representasi signed integer menggunakan two's complement.
+
+### Two's Complement
+
+Two's complement adalah cara umum untuk merepresentasikan bilangan negatif. Pada representasi ini, bit paling kiri atau most significant bit memiliki bobot negatif.
+
+Untuk integer 8 bit, bobot tiap bit dapat dilihat sebagai berikut.
+
+```text
+bobot  -128   64   32   16    8    4    2    1
 ```
-   1    1   1   1   1   1   1   1
-= -128 +64 +32 +16 +8 +4 +2 +1 = -1   ✓
+
+Contoh nilai `-1` dalam 8 bit.
+
+```text
+bit      1     1    1    1    1    1    1    1
+nilai  -128 + 64 + 32 + 16 + 8 + 4 + 2 + 1 = -1
 ```
 
-Ada cara cepat untuk membuat representasi angka negatif dalam two's complement. Ambil nilai positifnya, balik semua bit (NOT), lalu tambah 1.
+Cara umum untuk mendapatkan representasi negatif adalah membalik semua bit, lalu menambahkan 1.
 
+```text
+ 5   = 0000 0101
+NOT  = 1111 1010
++1   = 1111 1011
 ```
- 5  = 0000 0101
-NOT = 1111 1010
-+1  = 1111 1011  = -5
-```
 
-Kenapa memakai cara ini? Karena dengan two's complement, **penjumlahan angka positif dan negatif bisa memakai rangkaian penjumlah (adder) yang sama**. CPU tidak perlu sirkuit khusus untuk pengurangan.
+Hasil `1111 1011` adalah representasi 8 bit untuk `-5`.
 
-Contoh `5 + (-5)`:
+Keunggulan two's complement adalah operasi penjumlahan dapat menggunakan mekanisme hardware yang sama untuk nilai positif dan negatif.
 
-```
-  0000 0101   ( 5)
-+ 1111 1011   (-5)
+```text
+  0000 0101
++ 1111 1011
 -----------
- 10000 0000   -> bit ke-9 "dibuang" (overflow keluar), sisa 0000 0000 = 0  ✓
+1 0000 0000
 ```
 
-Jadi two's complement bukan sekadar trik matematika. Ia membuat hardware lebih sederhana.
+Jika hanya 8 bit yang disimpan, bit ke-9 dibuang dan hasilnya menjadi `0000 0000`, yaitu 0.
 
-### Range nilai
+### Rentang Nilai
 
-Untuk tipe N-bit:
+Untuk tipe N-bit, rentang nilai unsigned adalah `0` sampai `2^N - 1`.
 
-- **unsigned**: `0` sampai `2^N - 1`
-- **signed (two's complement)**: `-2^(N-1)` sampai `2^(N-1) - 1`
+Untuk tipe signed two's complement, rentangnya adalah `-2^(N-1)` sampai `2^(N-1) - 1`.
 
-Contoh `int` 32-bit signed: `-2.147.483.648` sampai `2.147.483.647`. Sisi negatif punya satu nilai lebih banyak daripada sisi positif, karena nol mengambil satu slot di sisi non-negatif.
+Sebagai contoh, `int` signed 32 bit dapat menyimpan nilai dari `-2.147.483.648` sampai `2.147.483.647`. Sisi negatif memiliki satu nilai lebih banyak karena nilai nol termasuk dalam sisi non-negatif.
 
 ---
 
-## 2.5 Overflow: saat angka "muter balik"
+## 2.5 Overflow
 
-Setiap tipe punya jumlah bit terbatas, jadi selalu ada batas nilai yang bisa disimpan. Apa yang terjadi kalau batas itu dilewati?
+Setiap tipe integer memiliki jumlah bit terbatas. Jika hasil operasi melewati rentang yang dapat disimpan, terjadi overflow.
 
 ```c
 #include <stdio.h>
-#include <limits.h>     // berisi INT_MAX, UCHAR_MAX, dll
+#include <limits.h>
 
 int main(void) {
-    unsigned char u = 255;   // nilai maksimum unsigned char
-    u = u + 1;               // 256... tapi cuma muat 8 bit
-    printf("u = %u\n", u);   // -> 0   (muter balik / wrap around)
+    unsigned char u = 255;
+    u = u + 1;
+    printf("u = %u\n", u);
 
     printf("INT_MAX = %d\n", INT_MAX);
     return 0;
 }
 ```
 
-`255 + 1` dalam biner adalah `1 0000 0000` atau 9 bit. Tetapi `unsigned char` hanya punya 8 bit. Bit ke-9 dibuang, sehingga yang tersisa adalah `0000 0000`, yaitu 0. Ini disebut **integer overflow** atau **wrap around**.
+Pada `unsigned char` 8 bit, nilai 255 direpresentasikan sebagai `11111111`. Jika ditambah 1, hasil matematisnya membutuhkan 9 bit. Karena variabel hanya menyimpan 8 bit, hasil akhirnya kembali menjadi `00000000`.
 
-Ada dua aturan yang perlu dibedakan dengan jelas.
+Untuk unsigned integer, perilaku ini terdefinisi. Hasil operasi mengikuti aritmetika modulo `2^N`, dengan N sebagai jumlah bit tipe tersebut.
 
-- Untuk **unsigned**, wrap-around ini *terdefinisi*. Nilainya memang berputar modulo 2^N, sehingga hasilnya bisa diprediksi.
-- Untuk **signed**, overflow adalah **undefined behavior (UB)** di C. Compiler boleh berasumsi bahwa signed overflow tidak pernah terjadi, lalu menghasilkan kode berdasarkan asumsi itu. Ini bukan sekadar hasil angka yang salah; asumsi compiler bisa mengubah alur optimasi. Karena itu signed overflow bisa menjadi sumber bug dan celah keamanan serius. Kita bahas lebih dalam di Bab 21.
+Untuk signed integer, overflow adalah undefined behavior dalam C. Compiler boleh mengasumsikan signed overflow tidak terjadi dan dapat menghasilkan optimasi yang tidak sesuai dengan dugaan programmer jika asumsi itu dilanggar.
 
-Bayangkan odometer 8-bit yang hanya bisa menghitung sampai 255. Setelah lewat batas itu, ia kembali ke 0. Informasi yang melebihi kapasitas hilang. Mirip jam 12 jam: 11 + 2 ditampilkan sebagai 1, bukan 13.
+Karena itu, jangan mengandalkan signed overflow. Gunakan tipe yang cukup besar, lakukan validasi batas, atau gunakan pendekatan lain ketika operasi berpotensi melewati rentang tipe.
 
 ---
 
-## 2.6 `char`: huruf itu sebenarnya angka
+## 2.6 `char` sebagai Integer Kecil
 
-`char` di C menarik karena namanya berarti "character", tetapi secara teknis ia adalah integer kecil berukuran 1 byte. Hubungan antara angka dan huruf ditentukan oleh tabel **ASCII**. Misalnya, 65 = `'A'`, 66 = `'B'`, 97 = `'a'`, 48 = `'0'`, 32 = spasi, dan seterusnya.
+`char` adalah tipe integer berukuran 1 byte. Nama `char` menunjukkan penggunaan umum sebagai karakter, tetapi nilainya tetap disimpan sebagai angka.
+
+Hubungan antara angka dan karakter ditentukan oleh encoding. Untuk karakter dasar seperti huruf Latin, encoding yang umum dibahas adalah ASCII. Dalam ASCII, nilai 65 merepresentasikan `'A'`, nilai 66 merepresentasikan `'B'`, nilai 97 merepresentasikan `'a'`, dan nilai 48 merepresentasikan `'0'`.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
     char c = 'A';
-    printf("sebagai char : %c\n", c);    // A
-    printf("sebagai int  : %d\n", c);    // 65
-    printf("c + 1        : %c\n", c + 1); // B
+    printf("sebagai char = %c\n", c);
+    printf("sebagai int  = %d\n", c);
+    printf("c + 1        = %c\n", c + 1);
 
     char digit = '7';
-    int nilai = digit - '0';             // trik klasik: '7' - '0' = 7
-    printf("digit jadi angka: %d\n", nilai);
+    int nilai = digit - '0';
+    printf("digit jadi angka = %d\n", nilai);
     return 0;
 }
 ```
 
-`'A'` dan `65` adalah byte yang sama. Yang berubah hanya cara kita mencetaknya: `%c` membaca byte itu sebagai karakter, sedangkan `%d` mencetaknya sebagai angka desimal. Ini contoh konkret dari prinsip awal bab: tipe dan format adalah cara membaca byte yang sama.
+Pada contoh tersebut, `'A'` dan 65 merepresentasikan byte yang sama. Perbedaannya terletak pada format yang digunakan untuk menampilkan nilai. `%c` menampilkan karakter, sedangkan `%d` menampilkan nilai integer.
 
-Trik `digit - '0'` sering dipakai. Karena karakter `'0'` sampai `'9'` berurutan di ASCII (48 sampai 57), mengurangi `'0'` dari karakter digit akan menghasilkan nilai numeriknya.
+Ekspresi `digit - '0'` sering digunakan untuk mengubah karakter digit menjadi nilai numeriknya. Ini bekerja karena karakter `'0'` sampai `'9'` tersusun berurutan dalam ASCII.
 
-> Catatan: apakah `char` secara default signed atau unsigned **tidak dijamin** oleh standar C. Itu tergantung platform. Kalau kamu butuh kepastian, tulis eksplisit `signed char` atau `unsigned char`.
+Perlu diperhatikan bahwa `char` biasa dapat bersifat signed atau unsigned tergantung platform. Jika perilakunya harus pasti, gunakan `signed char` atau `unsigned char` secara eksplisit.
 
 ---
 
-## 2.7 Floating point: kenapa `0.1 + 0.2 != 0.3`
+## 2.7 Floating Point
 
-Bagian ini sering membuat orang bingung karena hasilnya bertentangan dengan intuisi matematika sehari-hari. Lihat kode berikut.
+Bilangan pecahan seperti `float` dan `double` menggunakan representasi yang berbeda dari integer. Standar yang umum digunakan adalah IEEE 754.
+
+Perhatikan contoh berikut.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
     double a = 0.1 + 0.2;
-    printf("%.17f\n", a);          // 0.30000000000000004
-    printf("%s\n", (a == 0.3) ? "sama" : "BEDA");  // BEDA
+    printf("%.17f\n", a);
+    printf("%s\n", (a == 0.3) ? "sama" : "berbeda");
     return 0;
 }
 ```
 
-Kenapa `0.1 + 0.2` tidak tepat sama dengan `0.3`? Komputernya tidak rusak. Ini konsekuensi dari cara `float` dan `double` menyimpan bilangan pecahan dengan standar **IEEE 754**.
+Output yang umum terlihat adalah nilai yang sangat dekat dengan 0.3, tetapi tidak sama persis.
 
-### Idenya: notasi ilmiah dalam basis 2
-
-`float` dan `double` menyimpan angka mirip notasi ilmiah, tetapi dalam basis 2:
-
-```
-nilai = (-1)^sign  ×  1.mantissa  ×  2^exponent
+```text
+0.30000000000000004
+berbeda
 ```
 
-Sebuah `double` berukuran 64 bit. Bit-bit itu dibagi menjadi **1 bit sign**, **11 bit exponent**, dan **52 bit mantissa (pecahan)**. Sign menentukan positif atau negatif, exponent menentukan skala, dan mantissa menyimpan bagian signifikan dari angkanya.
+Hal ini terjadi karena tidak semua pecahan desimal dapat direpresentasikan secara tepat dalam biner. Nilai `0.1` memiliki representasi biner berulang. Karena `double` memiliki jumlah bit terbatas untuk menyimpan pecahan, nilai tersebut harus dibulatkan ke representasi terdekat yang tersedia.
 
-Masalahnya, sama seperti `1/3 = 0.3333...` tidak bisa ditulis tepat dalam desimal terbatas, **`0.1` tidak bisa ditulis tepat dalam biner terbatas**. Dalam basis 2, `0.1` menjadi:
+Secara umum, `double` 64 bit terdiri dari bit tanda, exponent, dan mantissa. Bentuknya mengikuti gagasan notasi ilmiah dalam basis 2.
 
+```text
+nilai = (-1)^sign * 1.mantissa * 2^exponent
 ```
-0.0001100110011001100...
-```
 
-Pola itu berulang tak hingga. Karena mantissa hanya punya 52 bit, nilainya harus **dipotong atau dibulatkan**. Akibatnya, `0.1` yang tersimpan di memori sedikit berbeda dari 0.1 yang kita maksud secara matematika. Saat dua angka yang sudah sedikit meleset dijumlahkan, hasilnya juga bisa meleset sedikit.
+Karena ada pembulatan pada representasi, hasil operasi floating point juga dapat mengandung selisih kecil.
 
-Bayangkan kamu diminta menulis 1/3 dengan tepat, tetapi hanya boleh memakai 4 angka di belakang koma. Kamu menulis `0.3333`. Itu mendekati 1/3, tetapi bukan tepat 1/3. Jika dijumlahkan, selisih kecil itu ikut terbawa. Komputer mengalami masalah serupa, hanya saja dalam basis 2.
+Konsekuensi praktis yang perlu diingat.
 
-### Konsekuensi praktis
+1. Jangan membandingkan floating point dengan `==` untuk nilai hasil perhitungan. Gunakan toleransi.
 
-1. **Jangan bandingkan float dengan `==`.** Gunakan toleransi atau epsilon:
    ```c
    #include <math.h>
-   if (fabs(a - b) < 1e-9) { /* anggap sama */ }
+
+   if (fabs(a - b) < 1e-9) {
+       /* dianggap sama */
+   }
    ```
-2. **Jangan pakai float untuk uang.** Pakai integer, misalnya hitung dalam satuan terkecil seperti sen, agar presisi.
-3. **`float` (4 byte) punya sekitar 7 digit desimal signifikan; `double` (8 byte) sekitar 15-16 digit.** Gunakan `double` sebagai default, kecuali kamu punya alasan kuat untuk memakai `float`, misalnya batasan memori atau performa.
+
+2. Jangan menggunakan `float` atau `double` untuk uang jika presisi satuan terkecil harus dijaga. Gunakan integer, misalnya menyimpan nilai dalam satuan sen atau rupiah terkecil.
+3. `float` biasanya memiliki sekitar 7 digit desimal signifikan. `double` biasanya memiliki sekitar 15 sampai 16 digit desimal signifikan.
+
+Dalam program C umum, gunakan `double` sebagai pilihan awal untuk bilangan pecahan kecuali ada alasan kuat untuk memilih `float`.
 
 ---
 
-## 2.8 Endianness: urutan byte dalam memori
+## 2.8 Endianness
 
-Untuk tipe yang lebih besar dari 1 byte, misalnya `int` yang biasanya 4 byte, muncul pertanyaan: byte-byte itu disimpan di memori dengan **urutan** seperti apa?
+Endianness adalah urutan penyimpanan byte untuk tipe yang berukuran lebih dari 1 byte. Misalnya, `int` 32 bit terdiri dari 4 byte. Byte tersebut dapat disimpan dalam urutan yang berbeda tergantung arsitektur.
 
-Ada dua urutan utama yang umum dibahas.
+Little-endian menyimpan byte paling rendah atau least significant byte pada alamat terendah. Arsitektur x86 dan x86-64 menggunakan urutan ini.
 
-- **Little-endian** — byte paling kecil atau least significant disimpan di alamat **terkecil** lebih dulu. Ini dipakai x86/x86-64 dan kebanyakan ARM modern.
-- **Big-endian** — byte paling besar atau most significant disimpan lebih dulu. Ini dipakai di beberapa arsitektur lama dan, yang penting, sebagai **network byte order** di protokol jaringan.
+Big-endian menyimpan byte paling tinggi atau most significant byte pada alamat terendah. Urutan ini juga dikenal sebagai network byte order pada banyak protokol jaringan.
 
-Misalnya, `int x = 0x12345678;` berukuran 4 byte. Di **little-endian**, isi memori dari alamat rendah ke alamat tinggi menjadi seperti ini.
+Misalnya terdapat nilai berikut.
 
-```
-alamat:  1000  1001  1002  1003
-isi:     0x78  0x56  0x34  0x12     <- byte terkecil (0x78) duluan
+```c
+int x = 0x12345678;
 ```
 
-Di **big-endian**, urutannya kebalikan: `0x12 0x34 0x56 0x78`.
+Pada little-endian, byte disimpan dari alamat rendah ke alamat tinggi seperti berikut.
 
-Buktikan endianness mesinmu dengan kode berikut. Ini juga menjadi latihan pointer ringan:
+```text
+alamat  1000  1001  1002  1003
+isi     0x78  0x56  0x34  0x12
+```
+
+Pada big-endian, urutannya menjadi `0x12 0x34 0x56 0x78`.
+
+Program berikut dapat digunakan untuk memeriksa endianness mesin.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
     unsigned int x = 0x12345678;
-    unsigned char *p = (unsigned char *)&x;  // baca x byte-per-byte
+    unsigned char *p = (unsigned char *)&x;
 
     for (int i = 0; i < 4; i++) {
-        printf("byte %d (alamat +%d) = 0x%02X\n", i, i, p[i]);
+        printf("byte %d alamat +%d = 0x%02X\n", i, i, p[i]);
     }
     return 0;
 }
 ```
 
-Di mesin x86-64 yang little-endian, outputnya akan menunjukkan urutan: `0x78, 0x56, 0x34, 0x12`.
+Pada mesin little-endian, output byte biasanya dimulai dari `0x78`, lalu `0x56`, `0x34`, dan `0x12`.
 
-Di sini prinsip utama bab ini muncul lagi. Kita mengambil byte mentah dari sebuah `int`, lalu membacanya ulang sebagai deretan `unsigned char`. Tipe `unsigned char *` memberi kita cara untuk melihat isi memori byte demi byte, tanpa mengubah nilai `x` itu sendiri.
-
-Kenapa ini penting? Saat kamu menulis data biner ke file atau mengirim data lewat jaringan, mesin penerima mungkin memakai endianness berbeda. Kalau urutan byte tidak disepakati, nilai `0x12345678` bisa terbaca sebagai `0x78563412`. Karena itu ada fungsi konversi seperti `htonl` dan `ntohl` (host-to-network-long), yang akan kita pakai di bab networking.
+Endianness penting saat program menulis data biner ke file, membaca data dari file biner, atau mengirim data melalui jaringan. Jika dua sistem menggunakan urutan byte yang berbeda, nilai yang sama dapat dibaca sebagai angka yang berbeda. Pada pemrograman jaringan, fungsi seperti `htonl` dan `ntohl` digunakan untuk mengonversi antara host byte order dan network byte order.
 
 ---
 
-## 2.9 Type conversion: saat tipe bertemu tipe
+## 2.9 Konversi Tipe
 
-Saat kamu mencampur tipe, C melakukan **konversi**. Kadang konversi itu otomatis atau implicit; kadang kamu memaksanya secara explicit dengan cast. Banyak bug muncul dari bagian ini karena konversi tidak selalu mengikuti intuisi manusia. Compiler mengikuti aturan tipe C, bukan makna bisnis dari nilai yang sedang kamu olah.
+Ketika beberapa tipe digunakan dalam satu ekspresi, C dapat melakukan konversi tipe. Konversi dapat terjadi secara implicit atau melalui cast eksplisit.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
-    // 1. Integer division: hasilnya integer, sisa dibuang
     int a = 7, b = 2;
-    printf("%d\n", a / b);            // 3  (bukan 3.5!)
-    printf("%f\n", (double)a / b);    // 3.500000  (cast dulu -> float division)
+    printf("%d\n", a / b);
+    printf("%f\n", (double)a / b);
 
-    // 2. Truncation: double -> int membuang bagian pecahan (bukan membulatkan)
     double pi = 3.99;
-    int n = (int)pi;                  // 3, bukan 4
+    int n = (int)pi;
     printf("%d\n", n);
 
-    // 3. Jebakan signed vs unsigned
     unsigned int u = 1;
     int s = -1;
+
     if (s < u)
         printf("s lebih kecil\n");
     else
-        printf("LOH? s tidak lebih kecil\n");  // <- ini yang tercetak!
+        printf("s tidak lebih kecil\n");
+
     return 0;
 }
 ```
 
-Kasus ketiga adalah jebakan klasik. Saat `int` (signed) dibandingkan dengan `unsigned int`, C mengkonversi nilai signed menjadi unsigned. Nilai `-1` berubah menjadi angka unsigned yang sangat besar, misalnya `4294967295` pada unsigned 32-bit. Akibatnya, perbandingan `-1 < 1` justru dianggap salah.
+Pada pembagian `a / b`, kedua operand bertipe integer, sehingga hasilnya juga integer. Bagian pecahan dibuang. Jika salah satu operand dikonversi menjadi `double`, pembagian dilakukan sebagai pembagian floating point.
 
-Bagian yang berbahaya adalah perubahan ini terjadi diam-diam. Kodenya terlihat seperti membandingkan angka negatif dengan angka positif, tetapi aturan konversi C mengubah salah satu operand lebih dulu. Karena itu warning dari compiler perlu dibaca, bukan diabaikan.
+Konversi dari `double` ke `int` membuang bagian pecahan. Proses ini disebut truncation, bukan rounding. Jika ingin membulatkan, gunakan fungsi seperti `round()` dari `<math.h>`.
 
-Bug keamanan sering muncul dari kesalahan semacam ini. Karena itu, hati-hati saat mencampur signed dan unsigned, terutama dalam perbandingan dan perhitungan ukuran. Nyalakan `-Wall -Wextra`; compiler biasanya akan memberi peringatan.
+Perbandingan signed dan unsigned perlu diperhatikan. Jika `int` dibandingkan dengan `unsigned int`, nilai signed dapat dikonversi menjadi unsigned. Dalam banyak sistem, nilai `-1` akan berubah menjadi nilai unsigned yang sangat besar. Akibatnya, hasil perbandingan dapat berbeda dari dugaan awal.
 
-Beberapa aturan praktis berikut membantu menghindari bug konversi.
+Aturan praktis yang perlu diingat.
 
-- Integer ÷ integer menghasilkan integer. Sisa pecahan dibuang. Cast salah satu operand ke `double` kalau kamu ingin hasil pecahan.
-- `double` → `int` berarti **memotong** bagian pecahan (truncate), bukan membulatkan. Gunakan `round()` dari `<math.h>` kalau kamu ingin membulatkan.
-- Hindari mencampur signed dan unsigned dalam perbandingan atau aritmetika.
+- Pembagian integer menghasilkan integer.
+- Cast salah satu operand ke `double` jika membutuhkan hasil pecahan.
+- Konversi `double` ke `int` melakukan truncation.
+- Hindari mencampur signed dan unsigned dalam perbandingan atau aritmetika jika tidak benar-benar diperlukan.
+- Aktifkan warning compiler seperti `-Wall` dan `-Wextra`.
 
 ---
 
-## 2.10 `const`: variabel yang janji tidak berubah
+## 2.10 `const`
+
+`const` digunakan untuk menyatakan bahwa sebuah nilai tidak boleh diubah setelah diinisialisasi.
 
 ```c
 const double PI = 3.14159;
-// PI = 4.0;   // ERROR saat compile: tidak boleh mengubah const
+/* PI = 4.0; tidak valid */
 ```
 
-`const` memberi tahu compiler dan pembaca kode bahwa nilai ini tidak boleh diubah setelah diinisialisasi. Manfaatnya ada dua: mencegah perubahan yang tidak sengaja dan membuat maksud kode lebih jelas.
+Penggunaan `const` membantu compiler mendeteksi perubahan yang tidak disengaja. Selain itu, `const` membuat maksud kode lebih jelas bagi pembaca.
 
-Kita akan membahas `const` lebih dalam saat masuk ke pointer, misalnya `const char *`, di Bab 7.
-
----
-
-## 2.11 Rangkuman model mental
-
-1. **Memori adalah deretan byte bernomor.** Memori sendiri tidak punya tipe; tipe ada di kode, sebagai cara membaca byte.
-2. **Byte yang sama bisa berarti hal berbeda** tergantung cara membacanya. Misalnya, `'A'` sama dengan `65`, dan sebuah `int` bisa dilihat ulang sebagai beberapa `char`.
-3. **Integer disimpan dalam biner.** Nilai negatif hampir selalu memakai **two's complement**, yang membuat hardware penjumlahan lebih sederhana.
-4. **Overflow terjadi karena jumlah bit terbatas.** Unsigned overflow wrap secara terdefinisi; signed overflow adalah **undefined behavior** dan berbahaya.
-5. **Floating point tidak selalu presisi.** IEEE 754 menyimpan pecahan basis 2 dengan bit terbatas. Jangan bandingkan float dengan `==`, dan jangan pakai float untuk uang.
-6. **Endianness adalah urutan byte.** Ini penting saat bekerja dengan I/O biner dan jaringan.
-7. **Konversi tipe adalah sumber bug klasik**, terutama saat signed dan unsigned bercampur.
+Pada bab tentang pointer, `const` akan dibahas lebih dalam karena posisinya dapat memengaruhi apakah pointer, data yang ditunjuk, atau keduanya tidak boleh diubah.
 
 ---
 
-## 2.12 Latihan & Pertanyaan Refleksi
+## 2.11 Rangkuman Model Mental
 
-**Latihan praktik:**
+Beberapa gagasan utama dari bab ini perlu diingat.
 
-1. Tulis program yang mencetak `sizeof` semua tipe dasar. Lalu tambahkan `int8_t`, `int32_t`, `int64_t` dari `<stdint.h>` dan bandingkan.
-2. Buat `unsigned char c = 200;`, lalu tulis `c = c + 100;`. Cetak hasilnya dengan `%u`. Prediksi dulu hasilnya sebelum menjalankan. Kenapa hasilnya seperti itu?
-3. Tulis program yang mengubah karakter `'a'`-`'z'` menjadi huruf besar **tanpa** memakai fungsi library, hanya dengan aritmetika. Berapa nilai `'A' - 'a'`?
-4. Jalankan kode pembuktian endianness di Section 2.8. Apa output di mesinmu? Berarti mesinmu little-endian atau big-endian?
-5. Cetak `0.1 + 0.2` dengan `printf("%.17f\n", ...)`. Berapa hasil persisnya? Lalu tulis pengecekan "sama dengan 0.3" yang benar memakai epsilon.
-6. Eksperimen dengan jebakan signed/unsigned dari Section 2.9. Compile dengan `-Wall -Wextra`. Warning apa yang muncul?
-
-**Pertanyaan refleksi:**
-
-1. Kenapa ide "memori tidak punya tipe" penting? Bagaimana ide itu menjelaskan bahwa `char` bisa diperlakukan sebagai angka?
-2. Jelaskan dengan kata-katamu sendiri kenapa two's complement membuat hardware lebih sederhana.
-3. Kenapa signed overflow adalah undefined behavior, sedangkan unsigned overflow tidak? Apa risikonya kalau kamu mengandalkannya?
-4. Kenapa uang sebaiknya tidak disimpan dalam `float` atau `double`? Apa alternatifnya?
-5. Kapan endianness mulai menjadi masalah nyata dalam program yang kamu tulis?
-6. Apa perbedaan **truncation** dan **rounding** saat `double` dikonversi ke `int`? Mana yang dilakukan C secara default?
+1. Memori menyimpan byte, bukan tipe. Tipe ditentukan oleh kode yang membaca atau menulis byte tersebut.
+2. Byte yang sama dapat ditafsirkan berbeda tergantung tipe dan format yang digunakan.
+3. Integer disimpan dalam biner. Bilangan negatif pada sistem modern umumnya menggunakan two's complement.
+4. Overflow terjadi karena jumlah bit terbatas. Unsigned overflow terdefinisi, sedangkan signed overflow adalah undefined behavior.
+5. Floating point tidak selalu merepresentasikan pecahan desimal secara tepat. Gunakan toleransi saat membandingkan hasil perhitungan.
+6. Endianness menentukan urutan byte di memori dan penting pada file biner serta jaringan.
+7. Konversi tipe dapat menjadi sumber bug, terutama pada perbandingan signed dan unsigned.
 
 ---
 
-Di Bab 3, kita naik ke level eksekusi: operator, percabangan (`if`), dan loop. Namun kita tidak hanya melihat cara menulisnya. Kita akan melihat bagaimana CPU menjalankannya lewat register, instruction pointer, branch, dan kenapa `if` pada akhirnya adalah lompatan.
+## 2.12 Latihan dan Pertanyaan Refleksi
+
+Kerjakan latihan berikut dengan mengetik dan menjalankan programnya sendiri.
+
+### Latihan Praktik
+
+1. Tulis program yang mencetak `sizeof` semua tipe dasar. Tambahkan `int8_t`, `int32_t`, dan `int64_t` dari `<stdint.h>`, lalu bandingkan hasilnya.
+2. Buat `unsigned char c = 200;`, lalu jalankan `c = c + 100;`. Cetak hasilnya dengan `%u` dan jelaskan mengapa nilainya berubah seperti itu.
+3. Tulis program yang mengubah karakter `'a'` sampai `'z'` menjadi huruf besar tanpa fungsi library, hanya dengan aritmetika karakter.
+4. Jalankan program pemeriksa endianness pada bagian 2.8. Tentukan apakah mesin yang digunakan little-endian atau big-endian.
+5. Cetak hasil `0.1 + 0.2` dengan `printf("%.17f\n", ...)`. Buat pengecekan kesamaan dengan `0.3` menggunakan epsilon.
+6. Jalankan contoh signed dan unsigned pada bagian 2.9. Kompilasi dengan `-Wall -Wextra` dan amati warning yang muncul.
+
+### Pertanyaan Refleksi
+
+1. Mengapa gagasan bahwa memori tidak memiliki tipe penting untuk memahami C?
+2. Bagaimana two's complement membantu menyederhanakan operasi aritmetika pada hardware?
+3. Mengapa signed overflow berbahaya dalam C?
+4. Mengapa nilai uang sebaiknya tidak disimpan menggunakan `float` atau `double`?
+5. Pada situasi apa endianness menjadi masalah nyata dalam program?
+6. Apa perbedaan truncation dan rounding ketika `double` dikonversi menjadi `int`?
+
+---
+
+Sampai di sini, kita sudah membahas tipe data, variabel, dan representasi memori. Pada bab berikutnya, kita akan membahas operator, percabangan, dan loop dengan melihat bagaimana instruksi tersebut dijalankan oleh komputer.
+

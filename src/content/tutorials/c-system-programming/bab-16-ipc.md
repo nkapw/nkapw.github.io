@@ -1,75 +1,82 @@
 ---
-title: "Bab 16 — Inter-Process Communication (IPC)"
-description: "Di Bab 14 kita belajar fakta penting: tiap proses punya ruang memori terisolasi. Proses A tidak bisa membaca variabel proses B begitu saja. Ini bagus untuk keamanan..."
-tags: [c, system-programming]
+title: "Bab 16 - Inter-Process Communication"
+description: "Setiap proses memiliki ruang memori sendiri. Isolasi ini penting untuk keamanan dan stabilitas, tetapi membuat proses tidak dapat bertukar data hanya dengan berbagi..."
+tags: [c, systems-programming]
 order: 16
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Setiap proses memiliki ruang memori sendiri. Isolasi ini penting untuk keamanan dan stabilitas, tetapi membuat proses tidak dapat bertukar data hanya dengan berbagi variabel biasa. Ketika dua proses perlu bekerja sama, keduanya membutuhkan mekanisme Inter-Process Communication atau IPC.
 
-> "Dua proses hidup di ruang memori yang terpisah. Kalau keduanya perlu bertukar data, harus ada mekanisme yang disediakan sistem operasi: pipe, FIFO, shared memory, atau bentuk IPC lain."
+Signal pada Bab 15 dapat memberi pemberitahuan asinkron, tetapi tidak cocok untuk mengirim aliran data. IPC menyediakan cara yang lebih jelas untuk mengirim byte, berbagi memori, atau menukar pesan antar proses.
 
-Di Bab 14 kita belajar fakta penting: **tiap proses punya ruang memori terisolasi**. Proses A tidak bisa membaca variabel proses B begitu saja. Ini bagus untuk keamanan dan stabilitas, tetapi menimbulkan pertanyaan baru. Bagaimana kalau dua proses *memang perlu* bekerja sama dan bertukar data? Signal (Bab 15) hanya memberi notifikasi sederhana. Untuk benar-benar mengalirkan data, kita butuh **Inter-Process Communication (IPC)**.
-
-Bab ini menjawab pertanyaan yang sering muncul saat memakai shell: **apa yang sebenarnya terjadi saat kamu mengetik `ls | grep .c`?** Tanda `|` itu adalah pipe, salah satu mekanisme IPC paling tua di UNIX. Kita akan melihat cara kerjanya di level file descriptor, lalu membangun versi sederhananya sendiri.
-
----
-
-## 16.1 Peta mekanisme IPC
-
-Ada beberapa cara proses berkomunikasi, masing-masing dengan trade-off berbeda.
-
-| Mekanisme | Bentuk | Antar proses | Catatan |
-|-----------|--------|--------------|---------|
-| **Pipe** (anonymous) | aliran byte 1 arah | yang berkerabat (parent-child) | yang ada di balik `\|` shell |
-| **FIFO** (named pipe) | aliran byte 1 arah | proses mana pun | punya nama di filesystem |
-| **Shared memory** | memori bersama | proses mana pun | tercepat; butuh sinkronisasi sendiri |
-| **Message queue** | pesan terstruktur | proses mana pun | berbasis pesan, bukan aliran |
-| **Socket** | aliran/datagram 2 arah | bahkan lintas mesin | Bab 18 (networking) |
-| **Signal** | notifikasi (tanpa data) | proses mana pun | Bab 15 |
-
-Kita fokus pada tiga mekanisme yang paling mendasar untuk bab ini: **pipe**, **FIFO**, dan **shared memory**. Ketiganya mewakili dua pendekatan berbeda yang perlu kamu pahami.
-
-Pipe dan FIFO memakai **aliran data**. Kernel menjadi perantara yang mengangkut byte dari satu proses ke proses lain. Shared memory memakai **memori bersama**. Dalam model ini, beberapa proses membaca dan menulis region memori yang sama secara langsung, sehingga koordinasinya menjadi tanggung jawab program.
+Bab ini membahas tiga mekanisme penting. Pipe digunakan untuk mengalirkan data antar proses yang berkerabat. FIFO menyediakan pipe bernama yang dapat dipakai proses yang tidak berkerabat. Shared memory memungkinkan beberapa proses mengakses region memori yang sama.
 
 ---
 
-## 16.2 Pipe: selang byte satu arah
+## 16.1 Gambaran Mekanisme IPC
 
-**Pipe** adalah saluran byte searah di dalam kernel. Satu ujung dipakai untuk **menulis**, dan ujung lainnya dipakai untuk **membaca**. Apa yang ditulis di satu ujung bisa dibaca di ujung lain, sementara kernel mengurus buffer di tengahnya.
+Ada beberapa mekanisme IPC dengan karakteristik berbeda.
+
+| Mekanisme | Bentuk komunikasi | Proses yang dapat memakai | Catatan |
+|-----------|-------------------|---------------------------|---------|
+| Pipe anonim | Aliran byte satu arah | Biasanya parent dan child | Dipakai oleh operator `|` pada shell |
+| FIFO | Aliran byte satu arah | Proses yang mengetahui path FIFO | Memiliki nama di filesystem |
+| Shared memory | Region memori bersama | Proses yang memetakan objek yang sama | Cepat, tetapi butuh sinkronisasi |
+| Message queue | Pesan terstruktur | Proses yang memakai queue yang sama | Cocok untuk batas pesan yang jelas |
+| Socket | Aliran atau datagram dua arah | Proses lokal atau lintas mesin | Dipakai pada jaringan |
+| Signal | Notifikasi asinkron | Proses yang dapat mengirim signal | Tidak cocok untuk data besar |
+
+Pipe dan FIFO memindahkan data melalui kernel. Proses penulis menulis byte, kernel menampungnya, lalu proses pembaca mengambil byte tersebut. Shared memory memakai pendekatan berbeda. Kernel memetakan region fisik yang sama ke beberapa proses, sehingga proses dapat membaca dan menulis langsung ke area yang sama.
+
+---
+
+## 16.2 Pipe Anonim
+
+Pipe anonim adalah saluran byte satu arah yang dibuat oleh kernel. Pipe memiliki satu ujung baca dan satu ujung tulis.
 
 ```c
 #include <unistd.h>
-int pipe(int fd[2]);   // buat pipe; isi fd[0]=ujung baca, fd[1]=ujung tulis
+
+int pipe(int fd[2]);
 ```
 
-`pipe(fd)` mengisi array dua fd. Ingat file descriptor dari Bab 12; prinsip "everything is a file" juga berlaku di sini.
+Jika berhasil, `pipe` mengisi dua file descriptor.
 
-- **`fd[0]`** — ujung **baca** (read end).
-- **`fd[1]`** — ujung **tulis** (write end).
+- `fd[0]` adalah ujung baca.
+- `fd[1]` adalah ujung tulis.
 
-Cara mengingatnya mengikuti fd standar: `0` seperti `stdin` (input/baca), sedangkan `1` seperti `stdout` (output/tulis).
-
-Pipe bisa dibayangkan seperti saluran satu arah. Kamu menulis byte di ujung `fd[1]`, lalu byte itu mengalir dan bisa dibaca dari ujung `fd[0]`. Arah alirannya tidak berbalik. Kalau kamu butuh komunikasi dua arah, kamu biasanya membutuhkan dua pipe.
-
-Pipe tidak membawa struktur pesan bawaan. Ia hanya mengalirkan byte. Kalau programmu ingin mengirim "pesan" yang punya batas jelas, kamu perlu membuat format sendiri di atas aliran byte itu, atau memilih mekanisme lain seperti message queue.
-
-### Pipe sederhana dalam satu proses (untuk paham mekanismenya)
+Pipe diperlakukan seperti file descriptor biasa. Program memakai `read` untuk membaca dari ujung baca dan `write` untuk menulis ke ujung tulis.
 
 ```c
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
 
 int main(void) {
     int fd[2];
-    if (pipe(fd) == -1) { perror("pipe"); return 1; }
 
-    const char *pesan = "Halo lewat pipe!";
-    write(fd[1], pesan, strlen(pesan) + 1);   // tulis ke ujung tulis
+    if (pipe(fd) == -1) {
+        perror("pipe");
+        return 1;
+    }
+
+    const char *pesan = "Halo lewat pipe";
+    if (write(fd[1], pesan, strlen(pesan) + 1) == -1) {
+        perror("write");
+        close(fd[0]);
+        close(fd[1]);
+        return 1;
+    }
 
     char buf[100];
-    read(fd[0], buf, sizeof(buf));            // baca dari ujung baca
-    printf("Diterima: %s\n", buf);            // Halo lewat pipe!
+    if (read(fd[0], buf, sizeof(buf)) == -1) {
+        perror("read");
+        close(fd[0]);
+        close(fd[1]);
+        return 1;
+    }
+
+    printf("Diterima %s\n", buf);
 
     close(fd[0]);
     close(fd[1]);
@@ -77,238 +84,336 @@ int main(void) {
 }
 ```
 
-Kode ini memakai syscall `write` dan `read` biasa (Bab 12), karena pipe diperlakukan seperti file. Pipe dalam satu proses berguna untuk memahami mekanismenya, tetapi kegunaan utamanya muncul saat digabung dengan `fork`.
+Contoh tersebut hanya menunjukkan mekanisme dasar. Pipe menjadi lebih berguna ketika digunakan bersama `fork`, karena child mewarisi file descriptor milik parent.
 
 ---
 
-## 16.3 Pipe + fork: komunikasi parent-child
+## 16.3 Pipe Bersama `fork`
 
-Inilah pola yang lebih nyata. Kunci memahaminya adalah perilaku `fork` dari Bab 14. Saat `fork`, child mewarisi salinan tabel file descriptor parent. Jadi setelah `fork`, parent dan child **sama-sama punya `fd[0]` dan `fd[1]` yang menunjuk pipe yang sama**. Pipe menjadi jembatan antara keduanya.
+Ketika proses memanggil `fork`, child menerima salinan tabel file descriptor parent. Jika parent membuat pipe sebelum `fork`, parent dan child sama-sama memiliki file descriptor yang menunjuk ke pipe yang sama. Hal ini memungkinkan keduanya bertukar data.
 
 ```c
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 int main(void) {
     int fd[2];
-    if (pipe(fd) == -1) { perror("pipe"); return 1; }
+
+    if (pipe(fd) == -1) {
+        perror("pipe");
+        return 1;
+    }
 
     pid_t pid = fork();
-    if (pid == -1) { perror("fork"); return 1; }
+    if (pid == -1) {
+        perror("fork");
+        close(fd[0]);
+        close(fd[1]);
+        return 1;
+    }
 
     if (pid == 0) {
-        // child jadi penulis; tutup ujung baca yang tidak dipakai
         close(fd[0]);
-        const char *pesan = "Salam dari child!";
+
+        const char *pesan = "Salam dari child";
         write(fd[1], pesan, strlen(pesan) + 1);
+
         close(fd[1]);
         _exit(0);
-    } else {
-        // parent jadi pembaca; tutup ujung tulis yang tidak dipakai
-        close(fd[1]);
-        char buf[100];
-        read(fd[0], buf, sizeof(buf));
-        printf("Parent menerima: %s\n", buf);   // Salam dari child!
-        close(fd[0]);
-        wait(NULL);   // panen child (Bab 14)
     }
+
+    close(fd[1]);
+
+    char buf[100];
+    if (read(fd[0], buf, sizeof(buf)) == -1) {
+        perror("read");
+        close(fd[0]);
+        wait(NULL);
+        return 1;
+    }
+
+    printf("Parent menerima %s\n", buf);
+
+    close(fd[0]);
+    wait(NULL);
     return 0;
 }
 ```
 
-### Kenapa harus menutup ujung yang tak dipakai?
+Pada contoh tersebut, child menjadi penulis dan parent menjadi pembaca. Karena pipe satu arah, proses yang tidak memakai salah satu ujung pipe harus menutup ujung tersebut.
 
-Perhatikan child `close(fd[0])` dan parent `close(fd[1])`. Ini **bukan** sekadar kerapian. Ada dua alasan teknis yang membuat penutupan fd ini penting.
+Menutup file descriptor yang tidak dipakai bukan sekadar kerapian. `read` pada pipe mengembalikan `0` sebagai EOF hanya ketika semua ujung tulis sudah ditutup. Jika parent masih menyimpan ujung tulis yang tidak dipakai, pembacaan dapat terus menunggu karena kernel menganggap masih ada kemungkinan data baru ditulis.
 
-1. **Pipe searah punya peran jelas.** Di sini child adalah penulis, parent adalah pembaca. Child tidak butuh ujung baca; parent tidak butuh ujung tulis. Menutup yang tidak dipakai mencegah kebingungan dan fd leak.
-
-2. **`read` tahu kapan berhenti hanya jika semua ujung tulis ditutup.** `read` pada pipe akan mengembalikan `0` (EOF, tanda "data habis") **hanya setelah semua write-end ditutup**. Kalau parent **tidak** menutup `fd[1]`-nya sendiri, write-end masih dianggap terbuka oleh parent. Akibatnya, `read` parent bisa **menggantung selamanya** menunggu data yang tidak akan pernah datang. Ini deadlock.
-
-Aturannya sederhana: setiap proses harus menutup ujung pipe yang tidak ia gunakan. Aturan ini bukan hanya soal kebersihan resource, tetapi juga bagian dari protokol EOF pada pipe.
+Aturan praktisnya sederhana. Setiap proses menutup ujung pipe yang tidak digunakan. Penulis menutup ujung baca. Pembaca menutup ujung tulis. Parent yang hanya menunggu child juga harus menutup kedua ujung jika tidak ikut membaca atau menulis.
 
 ---
 
-## 16.4 Membangun `ls | grep` sendiri
+## 16.4 Menghubungkan Program dengan `dup2`
 
-Sekarang kita terapkan pipe ke kasus yang sering kamu pakai. Saat kamu mengetik `ls | grep .c`, shell menjalankan `ls` dan `grep` sebagai **dua proses**, lalu menyambungkan **stdout `ls` ke stdin `grep`** lewat pipe. Caranya memakai `dup2`, yang menyambung ulang file descriptor.
+Operator `|` pada shell dibuat dengan pipe, `fork`, `dup2`, dan `exec`. Misalnya perintah berikut menghubungkan output `ls` ke input `grep`.
 
-`dup2(oldfd, newfd)` membuat `newfd` menjadi salinan `oldfd`, sehingga keduanya menunjuk hal yang sama. Bagian kuncinya adalah **`dup2(fd[1], STDOUT_FILENO)` membuat stdout (fd 1) menunjuk ke ujung tulis pipe**. Setelah itu, apa pun yang program tulis ke stdout, termasuk lewat `printf`, sebenarnya masuk ke pipe.
+```bash
+ls | grep .c
+```
+
+Shell membuat pipe, lalu membuat dua child. Child pertama menjalankan `ls` dan stdout-nya diarahkan ke ujung tulis pipe. Child kedua menjalankan `grep` dan stdin-nya diarahkan ke ujung baca pipe.
+
+Fungsi `dup2` digunakan untuk mengarahkan ulang file descriptor.
+
+```c
+#include <unistd.h>
+
+int dup2(int oldfd, int newfd);
+```
+
+Setelah `dup2(fd[1], STDOUT_FILENO)`, file descriptor `STDOUT_FILENO` menunjuk ke tujuan yang sama dengan `fd[1]`. Setiap output ke stdout akan masuk ke pipe.
 
 ```c
 #include <stdio.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 int main(void) {
     int fd[2];
-    pipe(fd);
 
-    if (fork() == 0) {
-        // child 1 jadi "ls"; output-nya diarahkan ke ujung tulis pipe
-        dup2(fd[1], STDOUT_FILENO);   // stdout -> pipe write end
-        close(fd[0]); close(fd[1]);   // tutup fd asli (sudah diduplikasi ke stdout)
-        execlp("ls", "ls", (char *)NULL);   // ls menulis ke "stdout" = pipe
-        perror("execlp ls"); _exit(127);
+    if (pipe(fd) == -1) {
+        perror("pipe");
+        return 1;
     }
 
-    if (fork() == 0) {
-        // child 2 jadi "grep .c"; input-nya dari ujung baca pipe
-        dup2(fd[0], STDIN_FILENO);    // stdin -> pipe read end
-        close(fd[0]); close(fd[1]);
-        execlp("grep", "grep", ".c", (char *)NULL);   // grep membaca dari "stdin" = pipe
-        perror("execlp grep"); _exit(127);
+    pid_t left = fork();
+    if (left == -1) {
+        perror("fork");
+        close(fd[0]);
+        close(fd[1]);
+        return 1;
     }
 
-    // parent menutup kedua ujung; parent tidak ikut komunikasi
-    close(fd[0]); close(fd[1]);
-    wait(NULL); wait(NULL);
+    if (left == 0) {
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[0]);
+        close(fd[1]);
+
+        execlp("ls", "ls", (char *)NULL);
+        perror("execlp ls");
+        _exit(127);
+    }
+
+    pid_t right = fork();
+    if (right == -1) {
+        perror("fork");
+        close(fd[0]);
+        close(fd[1]);
+        wait(NULL);
+        return 1;
+    }
+
+    if (right == 0) {
+        dup2(fd[0], STDIN_FILENO);
+        close(fd[0]);
+        close(fd[1]);
+
+        execlp("grep", "grep", ".c", (char *)NULL);
+        perror("execlp grep");
+        _exit(127);
+    }
+
+    close(fd[0]);
+    close(fd[1]);
+
+    wait(NULL);
+    wait(NULL);
     return 0;
 }
 ```
 
-Jalankan program ini. Outputnya sama dengan `ls | grep .c` di shell. Inilah pola yang dipakai shell setiap kali kamu memakai `|`, dan pola ini menyatukan beberapa konsep dari bab sebelumnya.
-
-- **`ls` tidak tahu** outputnya pergi ke pipe alih-alih layar. Ia hanya menulis ke stdout (fd 1) seperti biasa. `dup2` yang mengarahkan fd 1 ke pipe. Inilah kekuatan abstraksi "everything is a file" (Bab 12): `ls` tidak peduli ujungnya layar, file, atau pipe.
-- **`grep` tidak tahu** inputnya datang dari pipe. Ia hanya membaca stdin (fd 0). Karena itu tool UNIX bisa disambung lewat `|`; masing-masing cukup berbicara dengan stdin/stdout, tanpa perlu tahu siapa di ujung sana.
-- Parent (shell) menutup kedua ujung dan menunggu. Ini pola Bab 14 ditambah aturan `close` dari Bagian 16.3.
-
-Filosofi UNIX yang sering disebut "tiap program melakukan satu hal dengan baik, lalu disambung lewat pipe" punya mekanisme konkret di level syscall. Shell membuat pipe, membuat proses dengan `fork`, menyambung fd dengan `dup2`, menjalankan program dengan `exec`, lalu menunggu dengan `wait`.
+Program `ls` tidak perlu mengetahui bahwa output-nya diarahkan ke pipe. Program tersebut hanya menulis ke stdout. Program `grep` juga hanya membaca dari stdin. Abstraksi file descriptor membuat terminal, file, dan pipe dapat diperlakukan dengan cara yang sama oleh program.
 
 ---
 
-## 16.5 FIFO (named pipe): pipe yang punya nama
+## 16.5 FIFO
 
-Pipe biasa (`pipe()`) bersifat **anonymous**. Ia mudah dibagi antar proses yang **berkerabat** lewat `fork`, karena fd-nya diwariskan. Namun, ada kasus lain. Dua proses yang **sama sekali tidak berkerabat**, misalnya dijalankan dari terminal berbeda, juga bisa saja perlu berkomunikasi lewat saluran mirip pipe.
+Pipe anonim hanya mudah dibagikan kepada proses yang berkerabat, karena file descriptor diwariskan melalui `fork`. Jika dua proses yang tidak berkerabat perlu berkomunikasi, keduanya dapat memakai FIFO.
 
-Solusinya adalah **FIFO** (First In First Out), alias **named pipe**. Ia seperti pipe, tetapi punya **nama di filesystem**. Karena punya nama, proses mana pun bisa membukanya lewat path tersebut, seperti membuka file biasa.
+FIFO atau named pipe adalah pipe yang memiliki nama di filesystem. Proses yang mengetahui path FIFO dapat membukanya seperti membuka file.
 
 ```c
 #include <sys/stat.h>
-mkfifo("/tmp/saluran", 0666);   // buat named pipe di filesystem
+
+int mkfifo(const char *path, mode_t mode);
 ```
 
-Atau dari terminal: `mkfifo /tmp/saluran`. Setelah itu:
+Contoh pembuatan FIFO.
 
 ```c
-// Proses A (penulis) — di satu terminal
-FILE *f = fopen("/tmp/saluran", "w");
-fprintf(f, "Halo lewat FIFO!\n");
-fclose(f);
-
-// Proses B (pembaca) — di terminal lain, proses terpisah
-FILE *f = fopen("/tmp/saluran", "r");
-char buf[100];
-fgets(buf, sizeof(buf), f);
-printf("Diterima: %s", buf);
-fclose(f);
+if (mkfifo("/tmp/saluran", 0666) == -1) {
+    perror("mkfifo");
+    return 1;
+}
 ```
 
-Kamu bahkan bisa mencobanya tanpa C. Jalankan `mkfifo /tmp/s`, lalu di satu terminal jalankan `cat > /tmp/s` dan di terminal lain jalankan `cat /tmp/s`. Apa yang kamu ketik di terminal pertama akan muncul di terminal kedua.
+FIFO juga dapat dibuat dari shell.
 
-Walau FIFO muncul sebagai "file" di filesystem (`ls -l` menampilkannya dengan tipe `p`), ia **bukan file biasa**. Tidak ada data yang disimpan permanen di disk. FIFO tetap pipe, yaitu saluran di kernel. Nama filesystem-nya hanya menjadi titik temu agar proses yang tidak berkerabat bisa menemukannya.
+```bash
+mkfifo /tmp/saluran
+```
 
-Ada satu perilaku penting yang sering mengejutkan saat pertama kali memakai FIFO. Membuka FIFO untuk baca akan **memblokir** sampai ada proses yang membuka untuk tulis, dan sebaliknya. Keduanya harus hadir agar aliran data terjadi. Ini berbeda dari file biasa, yang bisa dibuka untuk baca tanpa menunggu proses lain.
+Contoh proses penulis.
 
-Kalau pipe anonymous hanya mudah dibagi dalam keluarga proses parent-child, FIFO menyediakan titik temu dengan **alamat publik** seperti `/tmp/saluran`. Siapa pun yang punya izin dan tahu path-nya bisa membuka saluran itu.
+```c
+#include <stdio.h>
+
+int main(void) {
+    FILE *f = fopen("/tmp/saluran", "w");
+    if (f == NULL) {
+        perror("fopen");
+        return 1;
+    }
+
+    fprintf(f, "Halo lewat FIFO\n");
+    fclose(f);
+    return 0;
+}
+```
+
+Contoh proses pembaca.
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    FILE *f = fopen("/tmp/saluran", "r");
+    if (f == NULL) {
+        perror("fopen");
+        return 1;
+    }
+
+    char buf[100];
+    if (fgets(buf, sizeof(buf), f) != NULL) {
+        printf("Diterima %s", buf);
+    }
+
+    fclose(f);
+    return 0;
+}
+```
+
+Walaupun FIFO muncul sebagai entri filesystem, data tidak disimpan sebagai isi file biasa. FIFO adalah saluran kernel dengan nama yang dapat ditemukan melalui filesystem. Membuka FIFO untuk baca dapat memblokir sampai ada proses yang membuka untuk tulis, dan sebaliknya.
+
+Setelah tidak diperlukan, FIFO dapat dihapus dengan `unlink` atau `rm`.
 
 ---
 
-## 16.6 Shared memory: berbagi papan tulis (tercepat)
+## 16.6 Shared Memory
 
-Pipe dan FIFO mengalirkan data **lewat kernel**. Tiap byte disalin dari proses penulis ke buffer kernel, lalu dari kernel ke proses pembaca. Untuk data besar atau komunikasi yang sangat sering, penyalinan ini bisa menjadi overhead. **Shared memory** memakai pendekatan yang berbeda.
+Shared memory memungkinkan beberapa proses memetakan region memori yang sama ke ruang alamat masing-masing. Setelah region dipetakan, proses dapat membaca dan menulis melalui pointer biasa.
 
-> **Shared memory membuat sepetak memori fisik yang sama dipetakan ke ruang alamat virtual beberapa proses sekaligus. Mereka benar-benar membaca dan menulis memori yang sama, tanpa perantara kernel untuk setiap akses.**
+Mekanisme ini cepat karena data tidak perlu disalin dari proses penulis ke buffer kernel lalu ke proses pembaca. Proses langsung mengakses memori yang sama. Namun, shared memory tidak menyediakan koordinasi otomatis. Jika dua proses menulis area yang sama pada waktu bersamaan, hasilnya dapat tidak konsisten.
 
-Ingat Bab 14: tiap proses punya ruang virtual terisolasi. Shared memory adalah pengecualian yang disengaja. Kernel memetakan satu region fisik ke dalam ruang virtual dua proses atau lebih. Alamat virtualnya bisa berbeda di tiap proses, tetapi mengarah ke memori fisik yang sama. Apa yang ditulis proses A ke region itu langsung terlihat oleh proses B, karena backing memory-nya memang sama.
+Karena itu, shared memory biasanya dipakai bersama mekanisme sinkronisasi seperti semaphore atau mutex yang dirancang untuk antar proses. Tanpa sinkronisasi, program rentan mengalami race condition.
 
-Ini biasanya menjadi **mekanisme IPC tercepat** karena tidak ada penyalinan data antar proses untuk setiap akses; mereka langsung mengakses memori bersama. Trade-off-nya adalah kamu kehilangan koordinasi otomatis yang diberikan pipe.
-
-Shared memory bisa dibayangkan seperti papan tulis yang terlihat dari dua ruangan. Proses A menulis di papan, proses B langsung melihatnya tanpa ada yang mengantar pesan. Ini cepat, tetapi juga menimbulkan masalah. Kalau A dan B menulis di tempat yang sama **bersamaan**, hasil akhirnya bisa kacau.
-
-### Masalah sinkronisasi (intip Bab 17)
-
-Inilah harga shared memory. Karena dua proses bisa mengakses memori yang sama **kapan saja dan bersamaan**, kamu bisa terkena **race condition**. Hasil program bergantung pada "siapa kebetulan menulis duluan", dan urutan itu tidak terprediksi.
-
-Pipe tidak punya masalah yang sama dalam bentuk ini karena kernel men-serialize aliran byte. Shared memory, sebaliknya, memberi akses langsung. Kecepatan itu datang bersama tanggung jawab koordinasi yang lebih besar.
-
-Kamu butuh mekanisme **sinkronisasi** seperti semaphore atau mutex untuk mengatur giliran akses. Konsep race condition dan mutex akan dibahas lebih lengkap di Bab 17 (threads), tetapi prinsipnya sama: **memori yang dibagi butuh aturan giliran.**
-
-### Gambaran API (POSIX shared memory)
+Contoh ringkas memakai POSIX shared memory.
 
 ```c
-#include <sys/mman.h>
 #include <fcntl.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
-// 1. buat/buka objek shared memory bernama
-int shm_fd = shm_open("/objku", O_CREAT | O_RDWR, 0666);
-ftruncate(shm_fd, 4096);                 // set ukurannya
+int main(void) {
+    int shm_fd = shm_open("/objku", O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        return 1;
+    }
 
-// 2. petakan ke ruang alamat proses -> dapat pointer biasa!
-void *ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (ftruncate(shm_fd, 4096) == -1) {
+        close(shm_fd);
+        shm_unlink("/objku");
+        return 1;
+    }
 
-// 3. pakai 'ptr' seperti memori biasa — tapi proses lain yang mmap objek
-//    yang sama akan melihat perubahan yang sama
-strcpy((char *)ptr, "data bersama");
+    void *ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                     MAP_SHARED, shm_fd, 0);
+    if (ptr == MAP_FAILED) {
+        close(shm_fd);
+        shm_unlink("/objku");
+        return 1;
+    }
 
-// 4. selesai
-munmap(ptr, 4096);
-close(shm_fd);             // tutup fd-nya
-shm_unlink("/objku");      // hapus objek shared memory dari sistem
+    strcpy((char *)ptr, "data bersama");
+
+    munmap(ptr, 4096);
+    close(shm_fd);
+    shm_unlink("/objku");
+    return 0;
+}
 ```
 
-Yang menarik adalah setelah `mmap`, kamu mendapat **pointer biasa** (`ptr`) yang dipakai seperti memori normal (Bab 6 dan Bab 9). Bedanya, memori di balik pointer itu dibagi dengan proses lain. `mmap` (memory map) sendiri adalah syscall penting yang juga dipakai untuk memetakan file ke memori dan, seperti disebut di Bab 9, oleh `malloc` untuk mengambil wilayah besar dari kernel.
+Langkah umumnya adalah membuat atau membuka objek shared memory dengan `shm_open`, menentukan ukurannya dengan `ftruncate`, memetakannya dengan `mmap`, lalu memakai pointer hasil `mmap`. Proses lain yang membuka objek yang sama dan melakukan `mmap` akan melihat region memori yang sama.
 
-Kamu tidak perlu menghafal detail API-nya sekarang. Yang penting adalah model mentalnya. Ada satu memori fisik yang dipetakan ke banyak proses, aksesnya langsung, dan setiap akses bersama membutuhkan aturan sinkronisasi.
-
----
-
-## 16.7 Memilih mekanisme IPC
-
-Panduan praktis berikut bisa dipakai untuk memilih mekanisme IPC.
-
-- **Pipe** — komunikasi searah sederhana antara parent-child; aliran data; tidak perlu koordinasi rumit. Default untuk "sambung output ke input".
-- **FIFO** — sama seperti pipe, tetapi antara proses tidak berkerabat yang bisa menyepakati sebuah nama path.
-- **Shared memory** — data besar atau performa kritis di mana penyalinan lewat kernel terlalu mahal; siap mengelola sinkronisasi sendiri.
-- **Message queue** — saat kamu butuh batas pesan yang jelas (bukan aliran byte mentah) dengan prioritas.
-- **Socket** (Bab 18) — komunikasi dua arah, terutama kalau ada kemungkinan lintas mesin.
-
-Prinsip umumnya adalah **mulai dari mekanisme paling sederhana yang cukup**. Sering kali pipe sudah memadai. Naik ke shared memory hanya saat performa benar-benar menuntutnya, dan saat kamu siap mengelola kompleksitas sinkronisasi.
+`mmap` juga dipakai untuk fungsi lain, seperti memory-mapped file dan alokasi memori besar oleh allocator. Pada konteks IPC, yang penting adalah pemetaan region bersama ke beberapa proses.
 
 ---
 
-## 16.8 Rangkuman model mental
+## 16.7 Memilih Mekanisme IPC
 
-1. Karena memori proses terisolasi (Bab 14), proses membutuhkan **IPC** untuk bertukar data. Dua pendekatan besarnya adalah **aliran data lewat kernel** seperti pipe/FIFO dan **berbagi memori langsung** seperti shared memory.
-2. **Pipe** adalah saluran byte searah di kernel. `pipe(fd)` menghasilkan `fd[0]` sebagai ujung baca dan `fd[1]` sebagai ujung tulis. Karena pipe diperlakukan seperti file, proses memakai `read` dan `write` biasa.
-3. **Pipe + fork** memungkinkan komunikasi parent-child karena child mewarisi fd pipe dari parent. Tiap proses harus menutup ujung yang tidak dipakai; kalau tidak, `read` bisa tidak pernah mendapat EOF dan program mengalami deadlock.
-4. **`|` di shell** dibangun dari `pipe`, `fork`, `dup2`, `exec`, dan `wait`. Shell menyambung stdout proses pertama ke stdin proses kedua. Masing-masing program tetap hanya berbicara lewat stdin/stdout, sehingga tidak perlu tahu ada pipe di antaranya.
-5. **FIFO (named pipe)** adalah pipe dengan nama di filesystem (`mkfifo`). Nama ini memungkinkan proses yang tidak berkerabat saling menemukan saluran. FIFO bukan file biasa; data tetap mengalir lewat kernel.
-6. **Shared memory** (`mmap`/`shm_open`) memetakan satu memori fisik ke banyak proses. Mekanisme ini sangat cepat karena tidak menyalin data per akses dan bisa dipakai lewat pointer biasa. Namun, shared memory rawan **race condition** sehingga membutuhkan **sinkronisasi** (Bab 17).
+Pemilihan mekanisme IPC bergantung pada bentuk data, hubungan antar proses, kebutuhan performa, dan kompleksitas sinkronisasi yang dapat diterima.
 
----
+- Gunakan pipe untuk aliran byte sederhana antara parent dan child.
+- Gunakan FIFO jika proses tidak berkerabat tetapi dapat menyepakati path yang sama.
+- Gunakan shared memory jika data besar atau performa penting, dan program siap mengelola sinkronisasi.
+- Gunakan message queue jika batas antar pesan penting.
+- Gunakan socket jika komunikasi perlu dua arah atau dapat melibatkan mesin lain.
+- Gunakan signal untuk pemberitahuan singkat, bukan untuk aliran data.
 
-## 16.9 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Buat pipe dalam satu proses (Bagian 16.2): tulis sebuah string ke `fd[1]`, baca dari `fd[0]`, cetak. Pastikan jalan.
-2. Buat komunikasi parent→child lewat pipe + fork: parent menulis, child membaca & mencetak. Lalu balik arahnya (child menulis, parent membaca).
-3. Demonstrasikan deadlock: di program pipe+fork, **lupa** menutup write-end di pembaca. Apakah `read` menggantung selamanya? Lalu perbaiki dengan `close` yang benar — jelaskan kenapa berhasil.
-4. Bangun `ls | grep .c` versimu sendiri (Bagian 16.4). Bandingkan output-nya dengan `ls | grep .c` asli di shell. Lalu modifikasi jadi `ls | wc -l`.
-5. Buat FIFO dengan `mkfifo /tmp/s` di terminal, lalu uji dengan dua `cat` di dua terminal (`cat > /tmp/s` dan `cat /tmp/s`). Amati. Lalu tulis versi C-nya (penulis & pembaca terpisah).
-6. (Lanjutan) Coba contoh shared memory: dua program terpisah, satu menulis ke `mmap`-ed shared memory, satu membacanya. Buktikan perubahan dari satu proses terlihat oleh yang lain.
-7. (Eksperimen race) Di shared memory, buat dua proses sama-sama menambah sebuah counter bersama ribuan kali tanpa sinkronisasi. Apakah hasil akhirnya sesuai harapan? Kenapa tidak? (Pengantar Bab 17.)
-
-**Pertanyaan refleksi:**
-
-1. Kenapa proses butuh IPC, padahal fungsi biasa bisa berbagi variabel? Akar masalahnya di konsep Bab 14 yang mana?
-2. Apa beda filosofis antara pipe (aliran lewat kernel) dan shared memory (berbagi langsung)? Apa trade-off masing-masing?
-3. Kenapa setiap proses harus menutup ujung pipe yang tidak dipakai? Apa akibat kalau lupa?
-4. Jelaskan langkah demi langkah apa yang terjadi saat shell menjalankan `ls | grep .c`. Peran `pipe`, `fork`, `dup2`, `exec` masing-masing apa?
-5. Kenapa `ls` "tidak tahu" outputnya masuk ke pipe? Bagaimana ini mencerminkan filosofi "everything is a file"?
-6. Apa beda pipe anonim dan FIFO? Kapan kamu butuh FIFO?
-7. Kenapa shared memory tercepat, tapi juga paling "berbahaya"? Masalah apa yang ia timbulkan yang tidak ada di pipe?
+Mulailah dari mekanisme paling sederhana yang memenuhi kebutuhan. Pipe sering cukup untuk menghubungkan output dan input. Shared memory sebaiknya dipilih ketika manfaat performanya lebih besar daripada biaya sinkronisasi dan kompleksitas tambahan.
 
 ---
 
-Kita sudah bisa membuat banyak proses bekerja sama. Namun, proses relatif berat. Ia punya ruang memori sendiri, biaya pembuatannya lebih besar, dan komunikasinya membutuhkan IPC. Kalau kita ingin **banyak alur eksekusi dalam satu proses** yang berbagi memori secara langsung, konsep berikutnya adalah **thread**. Di **Bab 17**, kita masuk ke **threads & concurrency**. Kita akan membahas `pthreads`, kenapa berbagi memori antar-thread itu mudah sekaligus berbahaya (**race condition**), dan cara mengatur giliran akses dengan **mutex**.
+## 16.8 Rangkuman Model Mental
+
+1. Proses memiliki ruang memori terisolasi, sehingga pertukaran data membutuhkan IPC.
+2. Pipe anonim menyediakan aliran byte satu arah melalui kernel.
+3. `pipe(fd)` menghasilkan `fd[0]` sebagai ujung baca dan `fd[1]` sebagai ujung tulis.
+4. Child hasil `fork` mewarisi file descriptor parent, sehingga pipe dapat dipakai untuk komunikasi parent dan child.
+5. Setiap proses harus menutup ujung pipe yang tidak digunakan agar EOF dapat terdeteksi dan file descriptor tidak bocor.
+6. Operator `|` pada shell dibangun dari pipe, `fork`, `dup2`, dan `exec`.
+7. FIFO adalah pipe bernama yang dapat dipakai proses yang tidak berkerabat.
+8. Shared memory memetakan region memori yang sama ke beberapa proses.
+9. Shared memory cepat, tetapi membutuhkan sinkronisasi untuk mencegah race condition.
+10. Mekanisme IPC dipilih berdasarkan kebutuhan aliran data, struktur pesan, hubungan antar proses, dan performa.
+
+---
+
+## 16.9 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Buat pipe dalam satu proses, tulis string ke `fd[1]`, baca dari `fd[0]`, lalu cetak hasilnya.
+2. Buat komunikasi parent ke child memakai pipe dan `fork`.
+3. Buat komunikasi child ke parent memakai pipe dan `fork`.
+4. Demonstrasikan masalah jika pembaca tidak menutup ujung tulis pipe yang tidak dipakai, lalu perbaiki dengan `close` yang benar.
+5. Bangun program yang menjalankan pola `ls | grep .c` memakai pipe, `fork`, `dup2`, dan `exec`.
+6. Ubah program sebelumnya menjadi pola `ls | wc -l`.
+7. Buat FIFO dengan `mkfifo`, lalu uji memakai dua program C terpisah sebagai penulis dan pembaca.
+8. Buat dua program yang memakai shared memory. Satu program menulis string dan program lain membacanya.
+9. Buat counter di shared memory yang dinaikkan oleh dua proses tanpa sinkronisasi, lalu amati hasil akhirnya.
+
+### Pertanyaan Refleksi
+
+1. Mengapa proses membutuhkan IPC untuk bertukar data.
+2. Apa perbedaan pipe anonim dan FIFO.
+3. Mengapa setiap proses perlu menutup ujung pipe yang tidak digunakan.
+4. Bagaimana `dup2` memungkinkan shell menghubungkan stdout satu proses ke stdin proses lain.
+5. Mengapa program seperti `ls` tidak perlu mengetahui bahwa output-nya masuk ke pipe.
+6. Mengapa FIFO dapat dipakai oleh proses yang tidak berkerabat.
+7. Mengapa shared memory lebih cepat daripada pipe untuk data besar.
+8. Mengapa shared memory membutuhkan sinkronisasi.
+9. Dalam situasi apa socket lebih tepat daripada pipe atau FIFO.
+
+---
+
+Bab ini menunjukkan cara proses bertukar data meskipun ruang memorinya terisolasi. Bab 17 akan membahas thread dan concurrency, termasuk race condition serta mutex untuk mengatur akses bersama.
+

@@ -1,238 +1,248 @@
 ---
-title: "Bab 10 — Preprocessor & Build System"
-description: "Kita sudah membahas inti bahasa dan memori. Mulai sekarang, fokusnya bergeser ke cara program C nyata dirakit dan dijalankan."
-tags: [c, system-programming]
+title: "Bab 10 - Preprocessor dan Build System"
+description: "Setelah memahami dasar bahasa, pointer, struktur data, stack, heap, dan manajemen memori manual, langkah berikutnya adalah memahami cara program C diproses sebelum..."
+tags: [c, systems-programming]
 order: 10
-updated: 2026-06-21
+updated: 2026-07-02
 ---
+Setelah memahami dasar bahasa, pointer, struktur data, stack, heap, dan manajemen memori manual, langkah berikutnya adalah memahami cara program C diproses sebelum dikompilasi dan cara proyek C dibangun secara teratur.
 
-> "Preprocessor bekerja sebelum compiler. Ia membaca directive seperti `#include` dan `#define`, lalu menghasilkan teks C yang akan dikompilasi."
+Bab ini membahas dua hal penting. Pertama, preprocessor, yaitu tahap awal yang memproses direktif seperti `#include`, `#define`, `#ifdef`, dan `#ifndef`. Kedua, build system, terutama `make` dan `Makefile`, yang digunakan untuk mengotomatiskan proses kompilasi pada proyek yang terdiri dari banyak file.
 
-Kita sudah membahas inti bahasa dan memori. Mulai sekarang, fokusnya bergeser ke cara program C nyata dirakit dan dijalankan.
-
-Bab ini punya dua bagian besar. Pertama, **preprocessor**, yang sudah kita lihat sekilas di Bab 1 sebagai tahap pertama kompilasi. Kedua, **build system**, terutama `Makefile`, yaitu cara mengotomatiskan build agar kamu tidak mengetik perintah `gcc` panjang berulang-ulang.
-
-Preprocessor sering terlihat sederhana karena kerjanya banyak berupa tempel dan ganti teks. Namun justru karena ia bekerja di level teks, macro bisa menimbulkan bug yang tidak terlihat seperti bug C biasa. Bagian ini akan menjelaskan cara berpikirnya sebelum kita masuk ke proyek multi-file.
+Preprocessor sering terlihat sederhana karena bekerja sebelum compiler. Namun, kesalahan dalam penggunaan macro, header, dan conditional compilation dapat menghasilkan bug yang sulit ditemukan. Karena itu, bagian ini perlu dipahami sebagai bagian penting dari penulisan program C yang rapi dan dapat dipelihara.
 
 ---
 
-## 10.1 Rekap: di mana posisi preprocessor
+## 10.1 Posisi Preprocessor dalam Proses Kompilasi
 
-Ingat pipeline Bab 1:
+Proses pembuatan program C dapat diringkas sebagai berikut.
 
 ```
 .c --[PREPROCESSOR]--> .i --[COMPILER]--> .s --[ASSEMBLER]--> .o --[LINKER]--> executable
-     ^^^^^^^^^^^^^^^
-     kita di sini
 ```
 
-**Preprocessor** berjalan **paling awal**, sebelum compiler melihat kodemu. Tugasnya murni manipulasi teks. Ia memproses semua baris yang diawali `#`, yang disebut **directive**.
+Preprocessor berjalan sebelum compiler membaca kode C hasil akhir. Tugasnya adalah memproses baris yang diawali `#`, yang disebut directive. Preprocessor melakukan manipulasi teks. Ia tidak memeriksa tipe, scope, aturan fungsi, atau validitas ekspresi C.
 
-Preprocessor **tidak** memahami tipe, fungsi, scope, atau aturan C seperti compiler. Ia hanya memotong, menempel, dan mengganti teks. Ini penting karena error akibat macro sering baru terlihat setelah teks hasil preprocessing masuk ke compiler. Saat membaca kode yang banyak memakai macro, jangan bayangkan macro sebagai fungsi kecil; bayangkan sebagai aturan pengubahan teks sebelum compile.
-
-Kamu bisa melihat hasilnya kapan saja dengan `gcc -E file.c`. Saat macro berperilaku aneh, command ini membantu karena kamu bisa melihat teks akhir yang benar-benar masuk ke compiler.
-
-Directive utama yang perlu kamu kenal adalah `#include`, `#define`, `#ifdef`/`#ifndef`/`#if`/`#endif`, `#undef`, dan `#pragma`. Mari bahas satu per satu.
-
----
-
-## 10.2 `#include`: menempel isi file
-
-Kita sudah melihat `#include` di Bab 1. Directive ini **mengganti dirinya dengan seluruh isi file** yang disebut. Ada dua bentuk:
-
-```c
-#include <stdio.h>     // cari di direktori sistem (library standar, dll)
-#include "myheader.h"  // cari dulu di direktori file ini, baru sistem
-```
-
-- **`<...>`** untuk header sistem/library (`stdio.h`, `stdlib.h`, ...).
-- **`"..."`** untuk header buatanmu sendiri.
-
-Hal pentingnya, tidak ada mekanisme tersembunyi di `#include`. Setelah preprocessing, baris `#include <stdio.h>` benar-benar **lenyap**, digantikan oleh isi `stdio.h`. Compiler tidak pernah melihat `#include`; yang ia lihat hanya satu file besar hasil preprocessing.
-
-Kamu bisa membuktikannya dengan:
+Hasil kerja preprocessor dapat dilihat dengan perintah berikut.
 
 ```bash
-gcc -E hello.c | wc -l
+gcc -E file.c
 ```
 
-Command itu menghitung jumlah baris setelah semua include ditempel.
+Perintah tersebut menampilkan kode C setelah semua directive preprocessor diproses. Cara ini sangat berguna ketika macro menghasilkan kode yang tidak sesuai harapan.
+
+Directive yang paling sering digunakan adalah `#include`, `#define`, `#ifdef`, `#ifndef`, `#if`, `#endif`, `#undef`, dan `#pragma`.
 
 ---
 
-## 10.3 `#define`: macro dan jebakannya
+## 10.2 `#include`
 
-`#define` membuat **macro**, yaitu aturan cari-dan-ganti teks. Ada dua jenis yang paling sering ditemui.
+Directive `#include` memasukkan isi file header ke dalam file sumber sebelum proses kompilasi berlanjut.
 
-### Object-like macro (konstanta)
+```c
+#include <stdio.h>
+#include "mymath.h"
+```
+
+Bentuk `<...>` digunakan untuk header sistem atau library standar, misalnya `stdio.h` dan `stdlib.h`. Bentuk `"..."` digunakan untuk header milik proyek sendiri. Pada bentuk kedua, compiler biasanya mencari file di direktori sumber terlebih dahulu sebelum mencari di lokasi header sistem.
+
+Setelah preprocessing, baris `#include` tidak lagi terlihat sebagai directive. Isinya sudah digantikan oleh deklarasi, macro, dan definisi lain yang terdapat di header tersebut. Karena itu, satu file sumber yang kecil dapat berubah menjadi file hasil preprocessing yang sangat besar.
+
+Gunakan `#include` untuk deklarasi fungsi, definisi tipe, macro yang memang perlu dibagikan, dan konstanta yang digunakan lintas file. Hindari memasukkan implementasi fungsi biasa ke header kecuali ada alasan yang jelas, misalnya untuk `static inline`.
+
+---
+
+## 10.3 `#define` dan Macro
+
+`#define` membuat macro. Macro adalah aturan substitusi teks yang diterapkan oleh preprocessor sebelum compiler memproses kode.
+
+### Object-Like Macro
+
+Object-like macro tidak memiliki argumen.
 
 ```c
 #define PI 3.14159
 #define MAX_BUFFER 1024
-#define NAMA_APP "MyProgram"
+#define NAMA_APP "ProgramC"
 ```
 
-Sebelum compile, preprocessor mengganti **setiap** kemunculan `PI` dengan teks `3.14159`, `MAX_BUFFER` dengan `1024`, dan seterusnya. Ini hanya substitusi teks: tidak ada tipe dan tidak ada memori. Setelah preprocessing, `double luas = PI * r * r;` menjadi `double luas = 3.14159 * r * r;`.
+Setiap kemunculan nama macro akan diganti dengan teks penggantinya. Misalnya, `PI` diganti menjadi `3.14159` sebelum compile.
 
-Dulu ini cara utama membuat konstanta. Namun di C modern, untuk konstanta sebaiknya pakai `const` atau `enum` (Bab 2 dan 8), karena keduanya punya **tipe** dan dikenali debugger. Macro hanya teks. `#define` tetap dipakai untuk hal yang tidak bisa dilakukan `const`, misalnya toggle kompilasi atau beberapa kebutuhan yang harus diproses sebelum compile.
+Untuk konstanta biasa, C modern lebih baik menggunakan `const` atau `enum` ketika memungkinkan. Keduanya memiliki tipe dan lebih mudah dipahami oleh compiler maupun debugger. Macro tetap berguna untuk hal yang memang membutuhkan keputusan pada tahap preprocessing, misalnya konfigurasi build dan conditional compilation.
 
-### Function-like macro (dan jebakannya)
+### Function-Like Macro
 
-Macro bisa menerima "argumen":
+Function-like macro memiliki argumen dan terlihat seperti fungsi.
 
 ```c
 #define KUADRAT(x) ((x) * (x))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
 ```
 
-`KUADRAT(5)` menjadi `((5) * (5))`. Kelihatannya seperti fungsi, tetapi **bukan**. Ini tetap substitusi teks. Karena itu, penempatan kurung menjadi sangat penting:
+Pemanggilan `KUADRAT(5)` akan diganti menjadi `((5) * (5))`. Walaupun bentuknya mirip fungsi, macro tetap bekerja sebagai substitusi teks. Perbedaan ini penting karena macro tidak mengevaluasi argumen seperti fungsi biasa.
+
+Contoh macro yang buruk.
 
 ```c
-#define KUADRAT_BURUK(x) x * x        // tanpa kurung -> bahaya
-#define KUADRAT_BAIK(x)  ((x) * (x))  // dengan kurung -> aman
+#define KUADRAT_BURUK(x) x * x
 
-int a = KUADRAT_BURUK(1 + 2);   // jadi: 1 + 2 * 1 + 2 = 5  (bukan 9)
-int b = KUADRAT_BAIK(1 + 2);    // jadi: ((1 + 2) * (1 + 2)) = 9  (benar)
+int a = KUADRAT_BURUK(1 + 2);
 ```
 
-`KUADRAT_BURUK(1 + 2)` menjadi `1 + 2 * 1 + 2`. Karena `*` punya precedence lebih tinggi daripada `+` (Bab 3), hasilnya `1 + 2 + 2 = 5`, bukan 9. Karena macro hanya menempel teks mentah, bungkus tiap argumen dan seluruh ekspresi dengan kurung.
+Kode tersebut menjadi `1 + 2 * 1 + 2`, sehingga hasilnya `5`, bukan `9`. Hal ini terjadi karena aturan prioritas operator diterapkan setelah teks macro ditempelkan.
 
-Jebakan kedua — **double evaluation**:
+Macro yang lebih aman harus memberi tanda kurung pada argumen dan keseluruhan ekspresi.
 
 ```c
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define KUADRAT_BAIK(x) ((x) * (x))
+
+int b = KUADRAT_BAIK(1 + 2);
+```
+
+Masalah lain adalah evaluasi ganda.
+
+```c
+#define KUADRAT(x) ((x) * (x))
 
 int x = 5;
-int m = MAX(x++, 10);   // x++ bisa dievaluasi DUA kali -> bug halus
+int y = KUADRAT(x++);
 ```
 
-Karena `MAX(x++, 10)` menjadi `((x++) > (10) ? (x++) : (10))`, `x++` muncul dua kali dan bisa dieksekusi dua kali. Ini bug yang sulit dilacak. Fungsi biasa tidak punya masalah ini karena argumen fungsi dievaluasi sekali sebelum fungsi dipanggil.
+Setelah preprocessing, `x++` muncul dua kali. Akibatnya, ekspresi tersebut dapat mengubah nilai `x` lebih dari sekali dalam satu macro. Fungsi biasa tidak memiliki masalah ini karena argumen fungsi dievaluasi satu kali sebelum fungsi dipanggil.
 
-> Di C modern, biasanya lebih baik memakai fungsi, atau `static inline` function, daripada function-like macro. Fungsi punya tipe, mengevaluasi argumen sekali, lebih aman dari masalah precedence, dan bisa di-debug. Macro tetap berguna saat kamu benar-benar butuh sesuatu yang fungsi tidak bisa lakukan, misalnya generik tanpa tipe atau manipulasi token.
-
-Macro bisa dibayangkan seperti fitur "Find & Replace" di editor teks yang dijalankan otomatis. Berguna, tetapi tidak memahami konteks. Ia hanya mengganti teks sesuai aturan.
-
-Karena itu, saat macro terlihat aneh, jangan hanya membaca source aslinya. Jalankan `gcc -E` dan lihat hasil ekspansinya. Sering kali bug macro baru jelas setelah kamu melihat bentuk teks yang benar-benar dikirim ke compiler.
+Dalam kode C modern, function-like macro sebaiknya digunakan secara terbatas. Jika tujuan dapat dicapai dengan fungsi biasa atau `static inline`, pilihan tersebut biasanya lebih aman karena memiliki tipe, lebih mudah diuji, dan lebih mudah di-debug.
 
 ---
 
-## 10.4 Conditional compilation: memilih kode saat compile
+## 10.4 Conditional Compilation
 
-Directive `#if`, `#ifdef`, `#ifndef`, `#else`, dan `#endif` membuat preprocessor **memasukkan atau membuang** potongan kode *sebelum* compile, berdasarkan kondisi. Ini disebut **conditional compilation**.
+Conditional compilation membuat preprocessor memilih bagian kode yang akan disertakan sebelum proses kompilasi. Directive yang umum digunakan adalah `#if`, `#ifdef`, `#ifndef`, `#else`, `#elif`, dan `#endif`.
 
 ```c
-#define DEBUG 1
+#include <stdio.h>
 
 int main(void) {
-#if DEBUG
-    printf("[debug] program mulai\n");   // ikut di-compile HANYA jika DEBUG
+#ifdef DEBUG
+    printf("[debug] program mulai\n");
 #endif
-    // ... kode utama
+
     return 0;
 }
 ```
 
-Kegunaan utamanya:
+Jika macro `DEBUG` didefinisikan, baris `printf` akan ikut dikompilasi. Jika tidak, baris tersebut tidak masuk ke kode hasil preprocessing.
 
-**1. Build debug vs release.** Kode logging/diagnostik cuma ikut saat build debug:
+Macro dapat didefinisikan dari command line dengan opsi `-D`.
+
+```bash
+gcc -DDEBUG main.c -o program
+```
+
+Conditional compilation sering digunakan untuk build debug dan release.
 
 ```c
 #ifdef DEBUG
-    #define LOG(msg) fprintf(stderr, "[LOG] %s\n", msg)
+#define LOG(msg) fprintf(stderr, "[LOG] %s\n", msg)
 #else
-    #define LOG(msg)              // di release, LOG(...) jadi tidak ada (kosong)
+#define LOG(msg)
 #endif
 ```
 
-Saat build release, semua pemanggilan `LOG(...)` hilang dari hasil preprocessing, sehingga tidak ada overhead runtime. Kamu mengaktifkannya dengan `gcc -DDEBUG ...`. Flag `-D` mendefinisikan macro dari command line, dan ini menghubungkan preprocessor dengan build system di Bagian 10.7.
+Pada build release, `LOG(msg)` dapat dibuat kosong sehingga tidak menambah pekerjaan saat program berjalan.
 
-**2. Portability (kode lintas platform).** Compiler/OS mendefinisikan macro tertentu otomatis, sehingga kamu bisa menulis kode berbeda per platform:
+Conditional compilation juga digunakan untuk kode lintas platform.
 
 ```c
 #ifdef __linux__
-    // kode khusus Linux
+    /* kode khusus Linux */
 #elif defined(_WIN32)
-    // kode khusus Windows
+    /* kode khusus Windows */
 #elif defined(__APPLE__)
-    // kode khusus macOS
+    /* kode khusus macOS */
 #endif
 ```
 
-Inilah cara library lintas-platform menangani perbedaan OS. Ini relevan di system programming karena syscall dan API sistem berbeda antar OS.
+Teknik ini penting karena sistem operasi dan compiler dapat menyediakan API, header, dan macro bawaan yang berbeda.
 
 ---
 
-## 10.5 Header guard: mencegah dobel-include
+## 10.5 Header Guard
 
-Header guard adalah pola yang perlu ada di setiap header file. Alasannya sederhana, tetapi efeknya penting.
+Setiap header sebaiknya memiliki header guard. Tujuannya adalah mencegah isi header diproses lebih dari satu kali dalam satu translation unit.
 
-Misalnya `a.h` di-`#include` oleh dua header lain, lalu kedua header itu sama-sama di-include ke `main.c`. Tanpa pencegahan, isi `a.h` ditempel **dua kali** ke `main.c`. Kalau `a.h` berisi definisi struct atau `typedef`, compiler melihat definisi ganda dan menghasilkan error **"redefinition"**.
+Tanpa header guard, file header yang di-include melalui beberapa jalur dapat menyebabkan definisi ganda. Masalah ini sering muncul pada `struct`, `typedef`, enum, dan deklarasi lain yang tidak boleh muncul berulang dalam bentuk yang sama.
 
-Solusinya **header guard** (disebut juga include guard):
+Contoh header guard.
 
 ```c
-// file: mymath.h
-#ifndef MYMATH_H      // kalau MYMATH_H belum didefinisikan
-#define MYMATH_H      // definisikan sekarang, lalu masukkan isi header
+#ifndef MYMATH_H
+#define MYMATH_H
 
 int tambah(int a, int b);
 double luas_lingkaran(double r);
 
-#endif  // MYMATH_H   // akhir guard
+#endif
 ```
 
-Cara kerjanya:
+Pada include pertama, `MYMATH_H` belum didefinisikan sehingga isi header diproses. Setelah itu, `MYMATH_H` didefinisikan. Pada include berikutnya dalam translation unit yang sama, isi header dilewati karena `MYMATH_H` sudah ada.
 
-1. **Include pertama:** `MYMATH_H` belum ada → `#ifndef` bernilai benar → isi dimasukkan → `MYMATH_H` jadi terdefinisi.
-2. **Include kedua (di file yang sama):** `MYMATH_H` sudah ada → `#ifndef` bernilai salah → seluruh isi dilewati.
+Nama macro guard harus dibuat unik. Konvensi umum adalah memakai nama file dengan huruf besar dan underscore, misalnya `MYMATH_H` untuk `mymath.h`.
 
-Hasilnya, isi header masuk **maksimal sekali** per translation unit, walaupun di-include berkali-kali. Konvensi nama guard biasanya memakai nama file dalam huruf besar dengan underscore, seperti `MYMATH_H`. Buat namanya unik agar tidak bentrok dengan header lain.
+Alternatif yang sering digunakan adalah `#pragma once`.
 
-Yang dijaga oleh header guard adalah pengulangan isi header di satu translation unit. Header yang sama tetap bisa masuk ke banyak file `.c` berbeda, dan itu memang normal. Nanti di Bab 11, perbedaan antara deklarasi di header dan definisi di file `.c` akan menjadi penting supaya pola ini tidak menimbulkan symbol ganda saat linking.
+```c
+#pragma once
 
-> Alternatif modern yang lebih ringkas adalah `#pragma once` di baris pertama header. Bentuk ini lebih singkat dan tidak butuh nama unik, serta didukung hampir semua compiler. Namun `#pragma once` secara teknis non-standar, sedangkan header guard `#ifndef` dijamin portable. Banyak proyek memakai salah satu; kenali keduanya.
+int tambah(int a, int b);
+```
 
-Tanpa header guard, proyek multi-file mudah sekali gagal compile. Ini akan muncul lagi saat kita memecah kode ke banyak file di Bab 11.
+`#pragma once` lebih ringkas dan didukung oleh banyak compiler modern, tetapi secara teknis bukan bagian dari standar C. Header guard dengan `#ifndef`, `#define`, dan `#endif` tetap menjadi pilihan yang paling portable.
 
 ---
 
-## 10.6 Macro bawaan & `#pragma`
+## 10.6 Macro Bawaan dan `#pragma`
 
-Preprocessor menyediakan beberapa macro bawaan yang berguna:
+Preprocessor menyediakan beberapa macro bawaan yang sering digunakan untuk debugging dan logging.
 
 ```c
-printf("File: %s\n", __FILE__);    // nama file sumber
-printf("Baris: %d\n", __LINE__);   // nomor baris saat ini
-printf("Tanggal: %s\n", __DATE__); // tanggal kompilasi
-// __func__ (sebenarnya identifier, bukan macro) -> nama fungsi saat ini
+printf("File %s\n", __FILE__);
+printf("Baris %d\n", __LINE__);
+printf("Tanggal kompilasi %s\n", __DATE__);
 ```
 
-Ini sering dipakai untuk membuat macro logging/assert yang menunjukkan lokasi error:
+Identifier `__func__` juga sering digunakan untuk mendapatkan nama fungsi saat ini.
+
+```c
+printf("Fungsi %s\n", __func__);
+```
+
+Macro bawaan dapat dipakai untuk membuat pesan error yang menyertakan lokasi sumber.
 
 ```c
 #define ASSERT(kondisi) \
     do { \
         if (!(kondisi)) { \
-            fprintf(stderr, "Assert gagal: %s (file %s, baris %d)\n", \
+            fprintf(stderr, "Assert gagal %s di %s baris %d\n", \
                     #kondisi, __FILE__, __LINE__); \
             abort(); \
         } \
     } while (0)
 ```
 
-Dua trik baru muncul di contoh ini. Pertama, `#kondisi` adalah operator **stringification** `#` yang mengubah argumen macro menjadi string literal. Kedua, pola `do { ... } while (0)` membungkus macro multi-statement agar aman dipakai di `if` tanpa kurung. Backslash `\` di akhir baris menyambung macro ke baris berikutnya, karena macro secara default hanya satu baris.
+Operator `#` pada macro disebut stringification. Operator ini mengubah argumen macro menjadi string literal. Pola `do { ... } while (0)` sering digunakan agar macro yang terdiri dari beberapa statement tetap aman saat dipakai di dalam `if`.
 
-Pola `do { ... } while (0)` terlihat aneh pada awalnya, tetapi tujuannya praktis: macro bisa dipakai seperti satu statement biasa dan tetap membutuhkan titik koma setelah pemanggilan. Tanpa pola ini, macro yang berisi beberapa statement mudah merusak struktur `if/else` di tempat pemanggilan.
-
-Kamu belum perlu menulis pola seperti ini sekarang, tetapi mengenalinya akan membantu saat membaca kode C yang lebih besar.
-
-`#pragma` memberi instruksi khusus ke compiler. Sifatnya non-standar dan tergantung compiler. Contoh yang umum adalah `#pragma once` (Bagian 10.5) dan `#pragma pack`, yang mengatur padding struct seperti di Bab 8.
+`#pragma` digunakan untuk memberi instruksi khusus kepada compiler. Perilakunya bergantung pada compiler. Contoh yang umum adalah `#pragma once` untuk header dan `#pragma pack` untuk mengatur padding pada `struct`.
 
 ---
 
-## 10.7 Build system: kenapa `gcc file.c` saja tak cukup
+## 10.7 Mengapa Build System Diperlukan
 
-Sejauh ini program kita masih satu file, jadi `gcc hello.c -o hello` cukup. Namun proyek nyata punya **banyak file** `.c` dan `.h`. Mengetik perintah compile panjang berulang-ulang melelahkan dan rawan salah:
+Program kecil dapat dikompilasi dengan satu perintah.
+
+```bash
+gcc main.c -o program
+```
+
+Proyek nyata biasanya terdiri dari banyak file `.c` dan `.h`. Kompilasi manual menjadi panjang dan rawan salah.
 
 ```bash
 gcc -Wall -Wextra -g -c main.c -o main.o
@@ -241,39 +251,33 @@ gcc -Wall -Wextra -g -c utils.c -o utils.o
 gcc main.o mymath.o utils.o -o program
 ```
 
-Masalah berikutnya muncul saat hanya sebagian file berubah. Kalau kamu hanya mengubah `utils.c`, idealnya kamu hanya perlu meng-compile ulang `utils.c`, bukan semuanya. Melacak ini secara manual cepat menjadi tidak praktis saat proyek membesar.
+Jika hanya `utils.c` yang berubah, idealnya hanya `utils.c` yang dikompilasi ulang. File lain yang tidak berubah tidak perlu dibangun ulang. Mengelola hal ini secara manual akan menyulitkan ketika proyek membesar.
 
-Solusinya adalah **build system**. Salah satu yang paling klasik dan fundamental di dunia C adalah **`make`** dengan file bernama `Makefile`.
+Build system menyelesaikan masalah tersebut dengan menyimpan aturan build dan menjalankan hanya perintah yang diperlukan. Dalam ekosistem C, alat klasik yang paling umum adalah `make` dengan file konfigurasi bernama `Makefile`.
 
 ---
 
-## 10.8 `Makefile`: otomatisasi build
+## 10.8 `Makefile`
 
-`make` bekerja berdasarkan **rules** (aturan) yang kamu tulis di `Makefile`. Tiap rule berbentuk:
-
-```
-target: dependencies
-	command       <- harus diawali TAB, bukan spasi
-```
-
-Rule itu bisa dibaca begini: untuk membuat `target`, dibutuhkan `dependencies`; kalau ada dependency yang lebih baru daripada target, jalankan `command` untuk membangun ulang target.
-
-Inilah keunggulan utama `make`: ia membandingkan **timestamp** file. Kalau `utils.c` lebih baru daripada `utils.o`, `make` tahu bahwa `utils.o` perlu di-compile ulang. File lain yang tidak berubah dibiarkan. Ini disebut **incremental build**, dan bisa menghemat banyak waktu di proyek besar.
-
-Contoh `Makefile` untuk proyek tiga file:
+`make` membaca aturan dari `Makefile`. Setiap aturan menyatakan target, dependency, dan perintah untuk membangun target tersebut.
 
 ```makefile
-# Variabel — biar tak mengulang
+target: dependency
+	command
+```
+
+Baris perintah harus diawali karakter TAB, bukan spasi. Ini adalah aturan sintaks Makefile yang wajib dipenuhi.
+
+Contoh `Makefile` sederhana untuk proyek yang terdiri dari tiga file sumber.
+
+```makefile
 CC = gcc
 CFLAGS = -Wall -Wextra -g -std=c11
 OBJ = main.o mymath.o utils.o
 
-# Target pertama = target default (dijalankan saat ketik "make" saja)
 program: $(OBJ)
 	$(CC) $(OBJ) -o program
 
-# Aturan: tiap .o butuh .c-nya. (Pola implicit make sudah tahu .o dari .c,
-# tapi kita tulis eksplisit + header dependency untuk kejelasan)
 main.o: main.c mymath.h utils.h
 	$(CC) $(CFLAGS) -c main.c
 
@@ -283,71 +287,71 @@ mymath.o: mymath.c mymath.h
 utils.o: utils.c utils.h
 	$(CC) $(CFLAGS) -c utils.c
 
-# Target "phony" — bukan file, cuma perintah
 clean:
 	rm -f $(OBJ) program
 
 .PHONY: clean
 ```
 
-Bagian-bagian pentingnya:
+Variabel seperti `CC`, `CFLAGS`, dan `OBJ` mengurangi pengulangan. Jika flag kompilasi perlu diubah, perubahan cukup dilakukan di satu tempat.
 
-- **Variabel** (`CC`, `CFLAGS`, `OBJ`) didefinisikan sekali dan dipakai dengan `$(...)`. Kalau flag berubah, kamu cukup mengubah satu tempat.
-- **Target `program`** adalah target pertama, jadi default. Untuk membuatnya, `make` membutuhkan semua `.o`, lalu menautkannya menjadi executable.
-- **Dependency header** seperti `main.o: main.c mymath.h utils.h` berarti: kalau `mymath.h` berubah, `main.o` ikut di-compile ulang karena `main.c` meng-include header itu. Ini penting dan sering terlupa.
-- **`clean`** adalah target `.PHONY`, bukan nama file sungguhan, untuk menghapus hasil build. Dijalankan dengan `make clean`.
-- **TAB, bukan spasi.** Baris command harus diawali karakter TAB. Jika memakai spasi, `make` biasanya error dengan pesan "missing separator". Hati-hati editor yang mengubah TAB menjadi spasi.
+Target pertama menjadi target default. Pada contoh di atas, menjalankan `make` tanpa argumen akan membangun `program`.
 
-Pakai:
+Dependency header penting untuk menjaga hasil build tetap benar. Jika `mymath.h` berubah, file object yang bergantung pada header tersebut perlu dikompilasi ulang.
+
+Target `clean` digunakan untuk menghapus file hasil build. Karena `clean` bukan nama file yang ingin dibuat, target ini ditandai sebagai `.PHONY`.
+
+Perintah yang umum digunakan.
+
 ```bash
-make            # build (incremental — cuma yang berubah)
-make clean      # bersihkan hasil build
+make
+make clean
 ```
 
-> `make` adalah fondasi. Proyek besar modern sering memakai tool di atasnya, seperti CMake atau Meson, yang menghasilkan Makefile/build files, atau sistem lain seperti Bazel. Namun memahami `make` langsung membuatmu mengerti apa yang terjadi di balik tool-tool itu. Makefile juga masih sering ditemui di proyek C dan kernel.
+`make` melakukan incremental build berdasarkan timestamp file. Jika dependency lebih baru daripada target, target dibangun ulang. Jika target masih lebih baru daripada semua dependency, perintah build tidak dijalankan.
 
-`Makefile` bisa dibayangkan sebagai resep dengan dependency. Untuk membuat target, `make` melihat bahan apa yang dibutuhkan dan hanya mengulang langkah yang input-nya berubah.
-
-Dependency header layak ditulis dengan hati-hati. Jika `mymath.h` berubah tetapi `main.o` tidak dibangun ulang, executable bisa memakai asumsi lama tentang prototype, struct, atau konstanta. Bug seperti ini membingungkan karena source sudah tampak benar, tetapi object file yang dipakai masih hasil compile lama.
+Tool modern seperti CMake dan Meson sering digunakan pada proyek besar. Namun, memahami `make` tetap penting karena banyak proyek C masih menggunakan Makefile, dan konsep dependency build tetap sama pada banyak build system lain.
 
 ---
 
-## 10.9 Rangkuman model mental
+## 10.9 Rangkuman Model Mental
 
-1. **Preprocessor** berjalan paling awal; tugasnya manipulasi teks seperti menempel dan mengganti. Lihat hasilnya dengan `gcc -E`.
-2. **`#include`** menempel isi file. `<...>` untuk sistem, `"..."` untuk header sendiri.
-3. **`#define`** = substitusi teks. Untuk konstanta, lebih baik `const`/`enum` karena punya tipe. Function-like macro rawan masalah precedence dan double evaluation; di C modern, pilih fungsi saat memungkinkan.
-4. **Conditional compilation** (`#ifdef`/`#if`) memilih kode saat compile untuk build debug/release dan portability lintas platform. Aktifkan macro dari command line dengan `-DNAMA`.
-5. **Header guard** (`#ifndef/#define/#endif` atau `#pragma once`) perlu ada di tiap header untuk mencegah dobel-include yang menyebabkan error redefinition.
-6. Macro bawaan (`__FILE__`, `__LINE__`) berguna untuk logging/assert.
-7. **Build system (`make` + `Makefile`)** mengotomatiskan compile multi-file dengan incremental build berbasis timestamp. Di Makefile, baris command diawali **TAB**.
-
----
-
-## 10.10 Latihan & Pertanyaan Refleksi
-
-**Latihan praktik:**
-
-1. Tulis program dengan `#define PI 3.14159` dan `#define KUADRAT(x) ((x)*(x))`. Jalankan `gcc -E file.c` dan temukan bagaimana keduanya menjadi teks setelah preprocessing.
-2. Buktikan jebakan macro: definisikan `KUADRAT_BURUK(x) x*x` dan `KUADRAT_BAIK(x) ((x)*(x))`. Hitung `KUADRAT_BURUK(1+2)` dan `KUADRAT_BAIK(1+2)`. Jelaskan kenapa hasilnya beda pakai aturan precedence.
-3. Buat macro `LOG(msg)` yang aktif hanya saat `DEBUG` didefinisikan (Bagian 10.4). Compile sekali biasa, sekali dengan `gcc -DDEBUG`. Bandingkan output.
-4. Buat header `mymath.h` berisi prototype fungsi, **tanpa** header guard. Include dua kali di file yang sama (`#include "mymath.h"` dua kali). Apa errornya? Lalu tambahkan header guard — apakah error hilang?
-5. Tulis program kecil yang mencetak `__FILE__`, `__LINE__`, dan `__func__`. Pindahkan baris-barisnya dan amati `__LINE__` berubah.
-6. Pecah sebuah program jadi tiga file (`main.c`, `mymath.c`, `mymath.h`) dan tulis `Makefile` untuk membangunnya. Sertakan target `clean`. Jalankan `make`, ubah satu file, jalankan `make` lagi — amati hanya file yang berubah yang di-compile ulang.
-7. Sengaja pakai spasi (bukan TAB) di baris command Makefile. Apa pesan errornya?
-
-**Pertanyaan refleksi:**
-
-1. Kenapa preprocessor disebut "tidak mengerti C"? Apa konsekuensi dari sifat ini?
-2. Kenapa function-like macro berbahaya? Sebutkan dua jenis bug yang bisa muncul, dan kenapa fungsi tak punya masalah itu.
-3. Kenapa di C modern `const`/`enum` lebih disukai daripada `#define` untuk konstanta?
-4. Jelaskan langkah demi langkah cara kerja header guard. Apa yang terjadi tanpa guard di proyek multi-file?
-5. Sebutkan dua kegunaan utama conditional compilation. Bagaimana `-DDEBUG` menghubungkan command line dengan preprocessor?
-6. Apa keunggulan utama `make` dibanding mengetik perintah `gcc` manual? Apa itu incremental build?
-7. Kenapa dependency header (`main.o: main.c mymath.h`) penting ditulis di Makefile?
+1. Preprocessor berjalan sebelum compiler dan melakukan manipulasi teks berdasarkan directive.
+2. `#include` memasukkan isi header ke file sumber sebelum kompilasi.
+3. `#define` membuat macro yang bekerja melalui substitusi teks.
+4. Function-like macro rawan kesalahan prioritas operator dan evaluasi ganda.
+5. Conditional compilation memilih kode yang disertakan berdasarkan macro yang aktif.
+6. Header guard mencegah isi header diproses berulang dalam satu translation unit.
+7. Macro bawaan seperti `__FILE__`, `__LINE__`, dan `__DATE__` berguna untuk logging dan debugging.
+8. `make` mengotomatiskan proses build multi-file melalui aturan target dan dependency.
+9. Incremental build membuat hanya file yang berubah dan dependencynya yang dibangun ulang.
 
 ---
 
-Kita sudah membahas preprocessor dan build otomatis. Namun kita belum benar-benar memecah program ke banyak file dan menyambungnya kembali.
+## 10.10 Latihan dan Pertanyaan Refleksi
 
-Di Bab 11, kita akan membahas **modular programming & linking**. Kita akan melihat apa itu translation unit, perbedaan **deklarasi vs definisi** dalam konteks lintas-file, peran `extern` dan `static`, bagaimana linker menyambung symbol antar file, serta cara membuat dan memakai **library** seperti static `.a` dan shared `.so`.
+### Latihan Praktik
+
+1. Tulis program dengan `#define PI 3.14159` dan `#define KUADRAT(x) ((x) * (x))`. Jalankan `gcc -E file.c` dan amati hasil preprocessing.
+2. Buat `KUADRAT_BURUK(x)` tanpa tanda kurung dan `KUADRAT_BAIK(x)` dengan tanda kurung. Bandingkan hasil untuk argumen `1 + 2`.
+3. Buat macro `LOG(msg)` yang hanya aktif ketika `DEBUG` didefinisikan. Compile program dengan dan tanpa opsi `-DDEBUG`.
+4. Buat header `mymath.h` tanpa header guard, lalu include header tersebut lebih dari satu kali. Tambahkan header guard dan bandingkan hasil kompilasinya.
+5. Tulis program yang mencetak `__FILE__`, `__LINE__`, dan `__func__`.
+6. Pecah program menjadi `main.c`, `mymath.c`, dan `mymath.h`. Buat `Makefile` untuk membangunnya.
+7. Ubah satu file sumber, lalu jalankan `make` lagi. Amati file mana yang dikompilasi ulang.
+8. Ganti TAB pada baris perintah Makefile dengan spasi dan amati pesan error dari `make`.
+
+### Pertanyaan Refleksi
+
+1. Mengapa preprocessor tidak dianggap memahami bahasa C.
+2. Apa risiko utama dari function-like macro.
+3. Mengapa `const` atau `enum` sering lebih baik daripada `#define` untuk konstanta biasa.
+4. Bagaimana header guard mencegah definisi ganda.
+5. Apa kegunaan conditional compilation pada build debug dan kode lintas platform.
+6. Apa keunggulan `make` dibanding kompilasi manual.
+7. Mengapa dependency header perlu ditulis di Makefile.
+
+---
+
+Setelah memahami preprocessor dan build system, Anda sudah memiliki dasar untuk mengelola proyek C yang terdiri dari banyak file. Bab berikutnya membahas modular programming dan linking, termasuk translation unit, deklarasi, definisi, `extern`, `static`, symbol, serta pembuatan library static dan shared.
+

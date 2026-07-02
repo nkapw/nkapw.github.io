@@ -18,6 +18,15 @@ const { title, description, headings = [], crumbs = [] } = Astro.props;
 // Only h2/h3 make a useful TOC; h1 is the page title.
 const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
 const hasToc = toc.length > 0;
+const tocTree: (MarkdownHeading & { children: MarkdownHeading[] })[] = [];
+
+for (const heading of toc) {
+  if (heading.depth === 2 || tocTree.length === 0) {
+    tocTree.push({ ...heading, children: [] });
+  } else {
+    tocTree[tocTree.length - 1].children.push(heading);
+  }
+}
 
 const pages = await getWikiPages();
 const pageCount = pages.length;
@@ -84,10 +93,21 @@ const lastUpdated = pages
           <div class="lg:grid lg:grid-cols-[200px_1fr] lg:gap-8">
             <nav aria-label="Table of contents">
               <p><strong>On this page</strong></p>
-              <ul>
-                {toc.map((h) => (
+              <ul class="toc-list">
+                {tocTree.map((h) => (
                   <li>
                     <a href={`#${h.slug}`}>{h.text}</a>
+                    {
+                      h.children.length > 0 && (
+                        <ul class="toc-sublist">
+                          {h.children.map((child) => (
+                            <li>
+                              <a href={`#${child.slug}`}>{child.text}</a>
+                            </li>
+                          ))}
+                        </ul>
+                      )
+                    }
                   </li>
                 ))}
               </ul>

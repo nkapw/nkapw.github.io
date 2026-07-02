@@ -1,53 +1,48 @@
 ---
-title: "Bab 17 — Threads & Concurrency"
-description: "Di Bab 14-16 kita bekerja dengan proses: relatif berat, terisolasi, dan membutuhkan IPC untuk berbagi data. Sekarang kita melihat alternatifnya, yaitu thread. Thread..."
-tags: [c, system-programming]
+title: "Bab 17 - Thread dan Konkurensi"
+description: "Pada Bab 14 sampai Bab 16 kita membahas proses, komunikasi antarproses, dan cara program C berinteraksi dengan sistem operasi. Proses memberi isolasi yang kuat,..."
+tags: [c, systems-programming]
 order: 17
-updated: 2026-06-20
+updated: 2026-07-02
 ---
+Pada Bab 14 sampai Bab 16 kita membahas proses, komunikasi antarproses, dan cara program C berinteraksi dengan sistem operasi. Proses memberi isolasi yang kuat, tetapi berbagi data antarproses membutuhkan mekanisme IPC dan biaya eksekusi yang lebih besar.
 
-> "Proses punya ruang memori sendiri. Thread hidup di dalam satu proses dan berbagi memori yang sama. Itu membuat komunikasi lebih ringan, tetapi juga membuat kesalahan satu thread bisa memengaruhi seluruh proses."
+Bab ini membahas **thread**, yaitu beberapa alur eksekusi di dalam satu proses. Thread memungkinkan pekerjaan berjalan secara konkuren dan berbagi memori secara langsung. Kemudahan ini membuat program lebih ringan dan responsif, tetapi juga membuka masalah baru seperti **race condition**, **critical section**, dan **deadlock**.
 
-Di Bab 14-16 kita bekerja dengan **proses**: relatif berat, terisolasi, dan membutuhkan IPC untuk berbagi data. Sekarang kita melihat alternatifnya, yaitu **thread**. Thread adalah beberapa alur eksekusi di dalam **satu proses**, dengan memori yang sama dan bisa diakses langsung. Thread membuka jalan ke **concurrency**, yaitu beberapa pekerjaan yang berjalan "bersamaan", dengan biaya yang lebih ringan daripada membuat proses baru.
-
-Namun, kemudahan itu punya konsekuensi. **Berbagi memori secara langsung itu praktis, tetapi membuka kelas masalah baru bernama race condition.** Bab ini membahas mengapa concurrency sulit, bagaimana bug bisa muncul dari urutan eksekusi yang tidak terprediksi, dan bagaimana mutex membantu mengatur akses ke data bersama.
-
----
-
-## 17.1 Thread vs proses: apa bedanya
-
-Ingat dari Bab 14: sebuah **proses** punya ruang memori terisolasi sendiri. Sebuah **thread** adalah alur eksekusi *di dalam* sebuah proses. Satu proses bisa punya banyak thread, dan inilah kuncinya:
-
-> **Semua thread dalam satu proses berbagi ruang memori yang sama**, termasuk heap, variabel global, dan file descriptor. Namun, tiap thread punya **stack sendiri** untuk variabel lokal dan call frame-nya, serta register dan instruction pointer sendiri.
-
-Tabel berikut merangkum perbedaannya.
-
-| Aspek | **Proses** (Bab 14) | **Thread** |
-|-------|---------------------|------------|
-| Memori | terisolasi (sendiri) | **berbagi** (heap, global) dalam proses |
-| Stack | sendiri | **sendiri** (tiap thread) |
-| Pembuatan | mahal (`fork`, salin memori) | murah (cuma stack & sedikit state) |
-| Komunikasi | butuh IPC (Bab 16) | **langsung** lewat memori bersama |
-| Crash satu | tak menjatuhkan yang lain | **menjatuhkan seluruh proses** |
-| Isolasi/keamanan | kuat | lemah (saling bisa rusak) |
-
-Proses bisa dibayangkan seperti rumah-rumah terpisah. Tiap rumah punya perabotan dan dapur sendiri, sehingga berbagi barang harus lewat mekanisme seperti surat atau kurir, yang dalam konteks program berarti IPC. Thread lebih mirip beberapa orang yang tinggal di satu rumah. Mereka berbagi dapur, kulkas, dan ruang tamu, sehingga tidak perlu mengirim data lewat IPC. Namun, kalau satu orang merusak dapur, seluruh rumah terkena dampaknya. Dalam program, satu thread yang crash bisa menjatuhkan seluruh proses.
-
-Thread cocok saat kamu butuh banyak alur eksekusi yang ringan dan sering berbagi data, misalnya server yang menangani banyak koneksi atau kerja paralel pada data bersama. Proses lebih cocok saat kamu butuh isolasi kuat, misalnya agar satu crash tidak menjatuhkan komponen lain, atau saat batas keamanan lebih penting.
+Tujuan utama bab ini adalah memahami model memori thread, cara membuat thread dengan POSIX threads, serta disiplin sinkronisasi yang diperlukan agar program konkuren tetap benar.
 
 ---
 
-## 17.2 Membuat thread dengan `pthreads`
+## 17.1 Perbedaan Thread dan Proses
 
-Di Linux/UNIX, API thread standar adalah **POSIX threads (`pthreads`)**, di `<pthread.h>`. Perlu di-link dengan `-pthread`.
+Sebuah **proses** memiliki ruang memori sendiri yang terisolasi dari proses lain. Sebuah **thread** adalah alur eksekusi di dalam sebuah proses. Satu proses dapat memiliki banyak thread.
+
+Semua thread dalam satu proses berbagi ruang memori yang sama, termasuk heap, variabel global, dan file descriptor. Namun, setiap thread tetap memiliki stack sendiri untuk variabel lokal, call frame, register, dan instruction pointer.
+
+| Aspek | **Proses** | **Thread** |
+|-------|------------|------------|
+| Memori | Terisolasi | Berbagi heap dan variabel global dalam proses yang sama |
+| Stack | Masing-masing proses memiliki stack sendiri | Masing-masing thread memiliki stack sendiri |
+| Pembuatan | Relatif mahal karena melibatkan proses baru | Relatif murah karena hanya menambah alur eksekusi |
+| Komunikasi | Membutuhkan IPC | Dapat dilakukan langsung melalui memori bersama |
+| Dampak crash | Umumnya tidak menjatuhkan proses lain | Dapat menjatuhkan seluruh proses |
+| Isolasi | Kuat | Lemah |
+
+Thread cocok digunakan ketika beberapa alur kerja perlu berbagi data dengan cepat, misalnya server yang menangani banyak koneksi atau program yang memproses data secara paralel. Proses lebih tepat ketika isolasi dan keamanan lebih penting, misalnya ketika kegagalan satu komponen tidak boleh memengaruhi komponen lain.
+
+---
+
+## 17.2 Membuat Thread dengan `pthreads`
+
+Di Linux dan sistem UNIX lain, API thread standar adalah **POSIX threads** atau **pthreads**. Header yang digunakan adalah `<pthread.h>`, dan program perlu dikompilasi dengan opsi `-pthread`.
 
 ```c
 #include <stdio.h>
 #include <pthread.h>
 
-// fungsi yang dijalankan thread: terima dan kembalikan void* (generik, Bab 6)
+// Fungsi yang dijalankan oleh thread menerima dan mengembalikan void *.
 void *kerja(void *arg) {
-    int id = *(int *)arg;                  // cast void* -> int* -> dereference
+    int id = *(int *)arg;
     printf("Thread %d sedang bekerja\n", id);
     return NULL;
 }
@@ -56,11 +51,11 @@ int main(void) {
     pthread_t t1, t2;
     int id1 = 1, id2 = 2;
 
-    // buat dua thread; masing-masing menjalankan 'kerja'
-    pthread_create(&t1, NULL, kerja, &id1);   // <- function pointer 'kerja' (Bab 7)
+    // Membuat dua thread yang menjalankan fungsi kerja.
+    pthread_create(&t1, NULL, kerja, &id1);
     pthread_create(&t2, NULL, kerja, &id2);
 
-    // tunggu kedua thread selesai (seperti wait() untuk proses, Bab 14)
+    // Menunggu kedua thread selesai.
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
@@ -69,209 +64,221 @@ int main(void) {
 }
 ```
 
-Compile dengan `gcc program.c -o program -pthread`.
+Kompilasi dengan perintah berikut.
 
-Mari lihat dua fungsi pentingnya.
+```sh
+gcc program.c -o program -pthread
+```
 
-- **`pthread_create(&tid, attr, fungsi, arg)`** membuat thread baru yang langsung mulai menjalankan `fungsi(arg)`. `fungsi` adalah **function pointer** bertipe `void *(*)(void *)` (Bab 7; thread start routine adalah callback), dan `arg` adalah `void *` (pointer generik, Bab 6) untuk mengoper data ke thread.
-- **`pthread_join(tid, &retval)`** memblokir sampai thread `tid` selesai. Ia mirip `wait` untuk proses (Bab 14), karena memastikan kita tidak keluar dari `main` sebelum thread selesai.
+`pthread_create(&tid, attr, fungsi, arg)` membuat thread baru dan langsung menjalankan `fungsi(arg)`. Parameter `fungsi` adalah function pointer bertipe `void *(*)(void *)`, sedangkan `arg` adalah `void *` untuk mengirim data ke thread.
 
-Thread `kerja` bisa langsung mengakses apa pun di memori proses, termasuk variabel global dan heap, **tanpa** IPC. Ini yang membuat thread praktis, sekaligus membuat akses bersama harus diatur dengan hati-hati.
+`pthread_join(tid, &retval)` memblokir eksekusi sampai thread `tid` selesai. Fungsinya mirip dengan `wait` pada proses. Pemanggilan ini memastikan `main` tidak selesai sebelum thread yang dibuatnya selesai bekerja.
+
+Thread dapat mengakses variabel global, heap, dan file descriptor proses tanpa IPC. Inilah alasan thread efisien, sekaligus alasan mengapa sinkronisasi menjadi penting.
 
 ---
 
-## 17.3 Race condition: akar kesulitan concurrency
+## 17.3 Race Condition sebagai Masalah Utama Konkurensi
 
-Sekarang kita masuk ke inti masalah concurrency. Karena thread berbagi memori, dua thread bisa mengakses dan memodifikasi **variabel yang sama secara bersamaan**. Ini terdengar tidak masalah sampai kamu melihat bahwa operasi yang terlihat seperti "satu langkah" di C sebenarnya bisa terdiri dari **beberapa langkah** di level CPU (Bab 3 dan Bab 4).
+Karena thread berbagi memori, dua thread dapat membaca dan menulis variabel yang sama pada waktu yang saling tumpang tindih. Operasi yang terlihat sederhana di C sering kali terdiri dari beberapa instruksi di level CPU.
 
-Lihat operasi sesederhana `counter++`:
+Contohnya adalah `counter++`.
 
 ```c
 counter++;
 ```
 
-Di level CPU, ini **bukan** satu instruksi atomik. Secara model sederhana, ia terdiri dari tiga langkah (ingat register dan ALU dari Bab 3).
+Operasi tersebut biasanya dapat diuraikan menjadi tiga langkah.
 
-```
-1. LOAD   : baca nilai 'counter' dari memori ke register
-2. ADD    : tambah 1 di register
-3. STORE  : tulis hasil dari register kembali ke memori
-```
-
-Sekarang bayangkan dua thread menjalankan `counter++` bersamaan, dan kernel menjadwalkan keduanya secara berselang. Seperti di Bab 14, tidak ada jaminan urutan eksekusi antar alur.
-
-```
-counter = 5 (awal)
-
-Thread A: LOAD counter (baca 5)
-Thread B: LOAD counter (baca 5)      <- B juga baca 5, sebelum A sempat menulis!
-Thread A: ADD -> 6
-Thread B: ADD -> 6
-Thread A: STORE counter (tulis 6)
-Thread B: STORE counter (tulis 6)    <- menimpa; counter jadi 6, bukan 7!
-
-Hasil akhirnya `counter = 6`, padahal seharusnya 7. Satu increment hilang.
+```text
+1. LOAD    baca nilai counter dari memori ke register
+2. ADD     tambah nilai register dengan 1
+3. STORE   tulis hasil dari register kembali ke memori
 ```
 
-Inilah **race condition**. Hasil program bergantung pada **timing atau urutan eksekusi yang tidak terprediksi** dari thread-thread yang sama-sama mengakses data bersama. Bug-nya **non-deterministik**. Kadang muncul, kadang tidak, tergantung penjadwalan kernel. Ini membuat race condition sulit di-debug: program bisa berjalan benar berkali-kali, lalu menghasilkan nilai salah tanpa perubahan kode.
+Jika dua thread menjalankan `counter++` pada waktu yang hampir bersamaan, urutannya dapat menjadi seperti berikut.
 
-```c
-#include <stdio.h>
-#include <pthread.h>
+```text
+counter = 5 pada awal eksekusi
 
-long counter = 0;          // variabel BERSAMA (global)
+Thread A membaca counter dan mendapat nilai 5
+Thread B membaca counter dan mendapat nilai 5
+Thread A menambah nilai menjadi 6
+Thread B menambah nilai menjadi 6
+Thread A menulis 6 ke counter
+Thread B menulis 6 ke counter
 
-void *tambah(void *arg) {
-    for (int i = 0; i < 1000000; i++)
-        counter++;          // RACE: tak terlindungi!
-    return NULL;
-}
-
-int main(void) {
-    pthread_t t1, t2;
-    pthread_create(&t1, NULL, tambah, NULL);
-    pthread_create(&t2, NULL, tambah, NULL);
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("counter = %ld (harusnya 2000000)\n", counter);
-    // Hasil sering kurang dari 2000000, dan bisa berbeda tiap run.
-    return 0;
-}
+Hasil akhir counter adalah 6, padahal seharusnya 7.
 ```
 
-Jalankan beberapa kali. Kamu biasanya akan melihat angka yang **kurang** dari 2.000.000, dan nilainya bisa berbeda antar run. Increment yang hilang adalah bukti race condition.
-
-Bayangkan dua orang berbagi satu catatan saldo. A membaca saldo Rp100, B juga membaca saldo Rp100. A menambah Rp50 dan menulis Rp150. B, yang tadi juga membaca Rp100, menambah Rp50 dan menulis Rp150. Padahal kalau dua penambahan dihitung benar, hasilnya harus Rp200. Update kedua "menimpa" update pertama karena keduanya membaca nilai lama. Inilah alasan akses ke data bersama perlu penguncian.
-
----
-
-## 17.4 Critical section & mutex: mengatur giliran
-
-Bagian kode yang mengakses data bersama dan **tidak boleh** dijalankan dua thread bersamaan disebut **critical section**. Solusinya adalah memastikan **hanya satu thread berada di critical section pada satu waktu**. Prinsip ini disebut **mutual exclusion**, dan alat yang umum dipakai adalah **mutex** (MUTual EXclusion lock).
-
-Mutex bekerja seperti kunci untuk sebuah ruangan. Thread harus mengunci (`lock`) sebelum masuk critical section, lalu membuka kunci (`unlock`) setelah keluar. Kalau thread lain mencoba lock saat mutex sudah terkunci, thread itu **menunggu** sampai kuncinya dilepas.
+Kondisi ini disebut **race condition**. Hasil program bergantung pada urutan eksekusi thread yang tidak dapat diprediksi. Bug seperti ini bersifat non-deterministik, sehingga bisa muncul pada satu eksekusi dan hilang pada eksekusi berikutnya.
 
 ```c
 #include <stdio.h>
 #include <pthread.h>
 
 long counter = 0;
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;   // mutex
+
+void *tambah(void *arg) {
+    for (int i = 0; i < 1000000; i++)
+        counter++;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t1, t2;
+
+    pthread_create(&t1, NULL, tambah, NULL);
+    pthread_create(&t2, NULL, tambah, NULL);
+
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    printf("counter = %ld, seharusnya 2000000\n", counter);
+    return 0;
+}
+```
+
+Program di atas kemungkinan besar menghasilkan nilai kurang dari 2.000.000, dan nilainya dapat berbeda pada setiap eksekusi. Increment yang hilang terjadi karena beberapa thread membaca nilai lama sebelum thread lain selesai menulis nilai baru.
+
+---
+
+## 17.4 Critical Section dan Mutex
+
+Bagian kode yang mengakses data bersama dan tidak boleh dijalankan oleh lebih dari satu thread pada waktu yang sama disebut **critical section**. Untuk melindungi bagian ini, program menggunakan **mutual exclusion**. Mekanisme yang paling umum adalah **mutex**.
+
+Thread harus mengunci mutex sebelum masuk ke critical section, lalu melepasnya setelah keluar. Jika thread lain mencoba mengunci mutex yang sedang terkunci, thread tersebut akan menunggu sampai mutex dilepas.
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+
+long counter = 0;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *tambah(void *arg) {
     for (int i = 0; i < 1000000; i++) {
-        pthread_mutex_lock(&lock);     // kunci: tunggu giliran
-        counter++;                     // critical section — aman, cuma satu thread di sini
-        pthread_mutex_unlock(&lock);   // lepas kunci: beri giliran berikutnya
+        pthread_mutex_lock(&lock);
+        counter++;
+        pthread_mutex_unlock(&lock);
     }
     return NULL;
 }
 
 int main(void) {
     pthread_t t1, t2;
+
     pthread_create(&t1, NULL, tambah, NULL);
     pthread_create(&t2, NULL, tambah, NULL);
+
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
-    printf("counter = %ld\n", counter);   // sekarang konsisten 2000000
+
+    printf("counter = %ld\n", counter);
     return 0;
 }
 ```
 
-Sekarang hasilnya konsisten 2.000.000. Mutex memastikan urutan LOAD-ADD-STORE satu thread tidak tersela thread lain, sehingga bagian itu menjadi efektif atomik. `pthread_mutex_lock` memblokir thread sampai mutex bebas, lalu menguncinya. `pthread_mutex_unlock` melepasnya.
+Dengan mutex, hasil program selalu menjadi 2.000.000. Mutex memastikan operasi baca, tambah, dan tulis pada `counter` tidak diselingi thread lain.
 
-> Aturan utama mutex adalah mengunci hanya di sekitar critical section dan menjaga bagian itu sependek mungkin. Selalu `unlock` di setiap jalur keluar, termasuk jalur error; pola `goto cleanup` dari Bab 13 sering membantu. Mutex yang terlalu lebar mengurangi manfaat concurrency karena thread terlalu sering antre. Mutex yang lupa di-unlock bisa membekukan program.
-
-Dengan contoh saldo tadi, mutex membuat B harus menunggu A selesai membaca, menambah, dan menyimpan nilai baru. Setelah A menulis Rp150 dan melepas lock, B baru membaca saldo terbaru itu dan menambahnya menjadi Rp200. Urutannya menjadi terkontrol.
+Aturan penting saat memakai mutex adalah mengunci hanya bagian yang benar-benar membutuhkan proteksi, menjaga critical section tetap pendek, dan memastikan `pthread_mutex_unlock` selalu dipanggil pada setiap jalur keluar. Mutex yang terlalu luas mengurangi manfaat konkurensi, sedangkan mutex yang tidak pernah dilepas dapat membuat program berhenti menunggu selamanya.
 
 ---
 
-## 17.5 Deadlock: saat penguncian malah membekukan
+## 17.5 Deadlock akibat Penguncian yang Salah
 
-Mutex menyelesaikan race condition, tetapi memperkenalkan bahaya baru: **deadlock**. Deadlock adalah situasi ketika thread-thread saling menunggu selamanya, sehingga tidak ada yang bisa maju.
+Mutex menyelesaikan race condition, tetapi dapat menimbulkan masalah lain. **Deadlock** terjadi ketika beberapa thread saling menunggu resource yang tidak akan pernah dilepas.
 
-Skenario klasiknya melibatkan dua thread dan dua mutex yang dikunci dalam urutan berlawanan.
+Skenario umum terjadi ketika dua thread mengunci dua mutex dalam urutan yang berbeda.
 
 ```c
-// Thread A:                    // Thread B:
-pthread_mutex_lock(&lock1);     pthread_mutex_lock(&lock2);
-pthread_mutex_lock(&lock2);     pthread_mutex_lock(&lock1);   // <- saling tunggu!
-// ...                          // ...
+// Thread A
+pthread_mutex_lock(&lock1);
+pthread_mutex_lock(&lock2);
+
+// Thread B
+pthread_mutex_lock(&lock2);
+pthread_mutex_lock(&lock1);
 ```
 
-Bayangkan A mengunci `lock1`, lalu B mengunci `lock2`. Setelah itu A ingin mengambil `lock2`, tetapi lock itu dipegang B, sehingga A menunggu. B ingin mengambil `lock1`, tetapi lock itu dipegang A, sehingga B juga menunggu. **Keduanya menunggu satu sama lain selamanya.** Program tidak crash, tetapi berhenti bergerak. Inilah deadlock.
+Jika Thread A sudah memegang `lock1` dan Thread B sudah memegang `lock2`, maka Thread A akan menunggu `lock2`, sedangkan Thread B akan menunggu `lock1`. Keduanya tidak dapat melanjutkan eksekusi.
 
-Cara membayangkannya sederhana: A memegang resource yang dibutuhkan B, sementara B memegang resource yang dibutuhkan A. Selama tidak ada yang melepas resource lebih dulu, keduanya terkunci dalam saling tunggu.
+Cara paling praktis untuk mencegah kasus ini adalah menetapkan urutan penguncian global yang konsisten. Jika semua thread selalu mengunci `lock1` sebelum `lock2`, maka pola saling menunggu seperti di atas tidak terjadi.
 
-Cara mencegah yang paling umum dan praktis adalah **selalu mengunci mutex dalam urutan global yang konsisten**. Kalau semua thread selalu mengunci `lock1` sebelum `lock2`, dan tidak pernah sebaliknya, skenario deadlock di atas tidak bisa terjadi. Ada strategi lain seperti `pthread_mutex_trylock`, timeout, dan lock hierarchy, tetapi urutan konsisten adalah fondasinya.
-
----
-
-## 17.6 Sekilas alat sinkronisasi lain
-
-Mutex adalah alat dasar, tetapi ada beberapa alat sinkronisasi lain yang perlu kamu kenal.
-
-- **Condition variable** (`pthread_cond_t`) — untuk thread yang perlu menunggu sampai suatu kondisi terpenuhi tanpa *busy-waiting* (mengecek terus-menerus yang boros CPU). Contohnya, thread konsumen menunggu sampai ada data di antrian. Condition variable biasanya dipakai bersama mutex. Pola produsen-konsumen klasik dibangun dengan ini.
-- **Semaphore** (`sem_t`) — penghitung untuk mengatur akses ke sejumlah resource (mis. "maksimal 5 thread boleh akses pool koneksi ini"). Mutex itu seperti semaphore dengan hitungan 1.
-- **Atomic operations** (`<stdatomic.h>`, C11) — untuk operasi sederhana seperti `counter++`, ada tipe atomik (`atomic_long`) yang menjamin operasinya tidak terpecah **tanpa** overhead mutex. Atomic sering lebih cepat untuk kasus sederhana. `atomic_fetch_add(&counter, 1)` aman tanpa lock.
-
-Kamu tidak perlu menguasai semuanya sekarang. Yang penting, kamu tahu alat-alat itu ada dan masalah apa yang biasanya diselesaikan masing-masing.
+Strategi lain seperti `pthread_mutex_trylock`, timeout, dan lock hierarchy juga dapat digunakan. Namun, disiplin urutan penguncian yang konsisten tetap menjadi dasar yang paling penting.
 
 ---
 
-## 17.7 Mengapa concurrency itu sulit (dan menutup `errno`)
+## 17.6 Alat Sinkronisasi Lain
 
-Concurrency sulit karena kita cenderung membaca kode secara berurutan, sedangkan thread berjalan **bersamaan dengan urutan yang tidak terprediksi**. Bug concurrency seperti race condition dan deadlock punya beberapa sifat yang membuatnya sulit ditangani.
+Mutex adalah alat sinkronisasi dasar, tetapi beberapa mekanisme lain juga sering digunakan.
 
-- **Non-deterministik** — muncul tidak konsisten, sehingga sulit direproduksi.
-- **Tergantung timing** — bisa hilang saat kamu menambahkan `printf` untuk debug, karena `printf` mengubah timing. Bug seperti ini sering disebut "Heisenbug".
-- **Sulit terlihat dari satu alur saja** — kodenya bisa terlihat benar baris per baris, tetapi salah ketika beberapa thread menjalankannya bersamaan.
+- **Condition variable** (`pthread_cond_t`) digunakan ketika thread perlu menunggu sampai suatu kondisi terpenuhi tanpa melakukan busy-waiting. Contoh umum adalah thread konsumen yang menunggu sampai ada data di antrian. Condition variable biasanya digunakan bersama mutex.
+- **Semaphore** (`sem_t`) adalah penghitung yang mengatur akses ke sejumlah resource. Contohnya adalah membatasi maksimal lima thread yang boleh memakai connection pool pada waktu yang sama.
+- **Atomic operations** dari `<stdatomic.h>` menyediakan operasi yang tidak dapat diselingi untuk kasus sederhana. Contohnya adalah `atomic_fetch_add(&counter, 1)` pada tipe `atomic_long`.
 
-Tooling membantu. **ThreadSanitizer** (`gcc -fsanitize=thread`, Bab 20) bisa mendeteksi race condition secara otomatis. Untuk kode multi-thread, tool ini berperan seperti ASan untuk bug memori.
-
-> Bagian ini juga menutup catatan dari Bab 13 tentang `errno` yang sebenarnya per-thread. Sekarang alasannya lebih jelas. Kalau `errno` adalah satu variabel global bersama, dua thread yang sama-sama gagal syscall bisa saling menimpa `errno`. Itu akan menjadi race condition pada pelaporan error. Karena itu C/POSIX membuat `errno` **thread-local**, sehingga tiap thread punya salinannya sendiri. Ini contoh nyata bahwa desain library harus memperhitungkan concurrency.
-
-Prinsip desain praktisnya adalah meminimalkan data bersama. Cara terbaik menghindari race condition adalah **tidak berbagi data** kalau bisa. Misalnya, tiap thread bekerja pada datanya sendiri, lalu hasilnya digabung di akhir. Data bersama yang tidak bisa dihindari harus dilindungi dengan disiplin, misalnya memakai mutex atau atomic. *Shared mutable state* adalah sumber banyak kesulitan; kurangi sebisa mungkin.
+Tidak semua mekanisme ini perlu dikuasai sekaligus. Yang penting adalah memahami kapan masing-masing alat dibutuhkan dan apa masalah yang diselesaikannya.
 
 ---
 
-## 17.8 Rangkuman model mental
+## 17.7 Mengapa Konkurensi Sulit
 
-1. **Thread** = alur eksekusi dalam satu proses. Semua thread **berbagi memori** (heap, global, fd), tetapi punya **stack sendiri**. Thread lebih ringan dan komunikasinya langsung dibanding proses, tetapi satu thread yang crash bisa menjatuhkan seluruh proses.
-2. **`pthreads`** memakai `pthread_create(&tid, NULL, fungsi, arg)` (fungsi = function pointer, Bab 7; arg = `void *`, Bab 6); `pthread_join` menunggu thread selesai, mirip `wait`. Link dengan `-pthread`.
-3. **Race condition** muncul ketika operasi "satu langkah" seperti `counter++` sebenarnya LOAD-ADD-STORE (Bab 3) yang bisa terinterleave antar thread. Hasilnya salah dan non-deterministik.
-4. **Critical section** dilindungi **mutex** (`pthread_mutex_lock`/`unlock`) untuk menyediakan mutual exclusion, yaitu satu thread pada satu waktu. Lock sependek mungkin, selalu unlock.
-5. **Deadlock** terjadi saat thread saling menunggu lock selamanya. Cegah dengan **urutan penguncian konsisten**.
-6. Alat lain: condition variable (tunggu kondisi), semaphore (hitung resource), atomic (`<stdatomic.h>`, tanpa lock untuk operasi sederhana).
-7. Concurrency sulit (bug non-deterministik); pakai **ThreadSanitizer**; **minimalkan data bersama**. (`errno` thread-local karena alasan ini — menutup Bab 13.)
+Program konkuren sulit dianalisis karena urutan eksekusi thread tidak sepenuhnya berada di bawah kendali programmer. Scheduler kernel dapat menghentikan satu thread dan menjalankan thread lain di titik yang berbeda-beda.
 
----
+Bug konkurensi memiliki beberapa karakteristik yang membuatnya sulit ditemukan.
 
-## 17.9 Latihan & Pertanyaan Refleksi
+- **Non-deterministik** karena tidak selalu muncul pada setiap eksekusi.
+- **Bergantung pada timing** karena perubahan kecil seperti menambahkan `printf` dapat mengubah urutan eksekusi.
+- **Sulit terlihat dari pembacaan kode biasa** karena setiap baris dapat terlihat benar saat dilihat secara terpisah.
 
-**Latihan praktik:**
+Tool seperti **ThreadSanitizer** dapat membantu mendeteksi race condition secara otomatis. Pada GCC dan Clang, program dapat dikompilasi dengan opsi `-fsanitize=thread` untuk memeriksa akses data bersama yang tidak tersinkronisasi.
 
-1. Tulis program yang membuat 3 thread, masing-masing mencetak ID-nya (oper lewat `arg`). Pakai `pthread_join` untuk menunggu semuanya. Compile dengan `-pthread`. Jalankan beberapa kali — apakah urutan output selalu sama? Kenapa?
-2. Reproduksi race condition (Section 17.3): dua thread sama-sama `counter++` sejuta kali tanpa proteksi. Jalankan 10 kali dan catat hasilnya. Apakah selalu 2.000.000? Apakah angkanya sama tiap kali?
-3. Perbaiki dengan mutex (Section 17.4). Jalankan 10 kali lagi — sekarang selalu benar? 
-4. Bandingkan performa versi mutex vs versi atomic (`atomic_long` + `atomic_fetch_add` dari `<stdatomic.h>`). Mana lebih cepat? Kenapa?
-5. Ciptakan deadlock sengaja (Section 17.5): dua thread, dua mutex, urutan terbalik. Jalankan — apakah program beku? Lalu perbaiki dengan menyamakan urutan lock. 
-6. Jalankan versi race (latihan 2) dengan `gcc -fsanitize=thread`. Apakah ThreadSanitizer mendeteksi & melaporkan race-nya? Baca laporannya.
-7. (Lanjutan) Implementasikan pola produsen-konsumen sederhana: satu thread menambah item ke buffer bersama, satu thread mengambilnya, dilindungi mutex (bonus: condition variable).
+Bab 13 menyebut bahwa `errno` bersifat per-thread. Alasannya berkaitan langsung dengan konkurensi. Jika `errno` adalah satu variabel global biasa, dua thread yang sama-sama mengalami kegagalan syscall dapat saling menimpa nilai error. Karena itu, C dan POSIX membuat `errno` sebagai data thread-local agar setiap thread memiliki salinannya sendiri.
 
-**Pertanyaan refleksi:**
-
-1. Apa perbedaan utama thread dan proses dalam hal memori? Sebutkan satu kelebihan & satu kekurangan thread.
-2. Kenapa `counter++` bisa menyebabkan race condition, padahal terlihat seperti satu operasi? Jelaskan dengan LOAD-ADD-STORE.
-3. Apa yang membuat bug race condition begitu sulit di-debug dibanding bug biasa?
-4. Apa itu critical section dan mutual exclusion? Bagaimana mutex menyediakannya?
-5. Apa itu deadlock? Berikan skenarionya dan cara mencegah yang paling praktis.
-6. Kenapa "minimalkan data bersama" adalah prinsip desain yang baik untuk program konkuren?
-7. Hubungkan kembali ke Bab 13: kenapa `errno` harus thread-local? Apa yang terjadi kalau ia variabel global biasa di program multi-thread?
+Prinsip desain yang penting adalah meminimalkan data bersama. Jika sebuah thread dapat bekerja pada datanya sendiri dan hasilnya baru digabungkan di akhir, risiko race condition jauh lebih kecil. Data bersama yang tidak dapat dihindari harus dilindungi dengan mutex, atomic operation, atau mekanisme sinkronisasi lain yang sesuai.
 
 ---
 
-Dengan ini kita menutup **BAGIAN IV**, yang membahas interaksi dengan sistem operasi: file/IO, error, proses, signal, IPC, dan thread. Bagian ini menjadi dasar untuk memahami bagaimana program C berjalan sebagai bagian dari sistem yang lebih besar.
+## 17.8 Rangkuman Model Mental
 
-BAGIAN V membawa kita ke topik sistem yang lebih luas. Di **Bab 18**, kita keluar dari satu mesin dan masuk ke **networking level rendah** dengan **socket**: bagaimana program berbicara lewat jaringan, TCP vs UDP, model client-server, dan kenapa socket bisa dipahami sebagai "file descriptor yang ujungnya ada di komputer lain" (ingat "everything is a file").
+1. **Thread** adalah alur eksekusi di dalam satu proses. Semua thread berbagi heap, variabel global, dan file descriptor, tetapi masing-masing memiliki stack sendiri.
+2. **Thread lebih ringan daripada proses**, tetapi isolasinya lebih lemah. Crash pada satu thread dapat menjatuhkan seluruh proses.
+3. **`pthreads`** menyediakan `pthread_create` untuk membuat thread dan `pthread_join` untuk menunggu thread selesai. Program perlu dikompilasi dengan `-pthread`.
+4. **Race condition** terjadi ketika hasil program bergantung pada urutan akses thread terhadap data bersama.
+5. **Critical section** harus dilindungi agar hanya satu thread yang menjalankannya pada satu waktu.
+6. **Mutex** menyediakan mutual exclusion melalui `pthread_mutex_lock` dan `pthread_mutex_unlock`.
+7. **Deadlock** terjadi ketika thread saling menunggu lock yang tidak pernah dilepas. Pencegahan paling praktis adalah urutan penguncian yang konsisten.
+8. **Condition variable**, **semaphore**, dan **atomic operation** adalah alat sinkronisasi tambahan untuk kebutuhan yang berbeda.
+9. **Data bersama yang dapat berubah** harus diminimalkan karena merupakan sumber utama bug konkurensi.
+
+---
+
+## 17.9 Latihan dan Pertanyaan Refleksi
+
+### Latihan Praktik
+
+1. Tulis program yang membuat 3 thread. Setiap thread mencetak ID-nya melalui nilai yang dikirim lewat `arg`. Gunakan `pthread_join` untuk menunggu semuanya selesai. Kompilasi dengan `-pthread`, lalu jalankan beberapa kali dan amati apakah urutan output selalu sama.
+2. Reproduksi race condition dari bagian 17.3. Buat dua thread yang sama-sama menjalankan `counter++` sebanyak satu juta kali tanpa proteksi. Jalankan 10 kali dan catat hasilnya.
+3. Perbaiki program pada latihan sebelumnya dengan mutex. Jalankan 10 kali lagi dan pastikan hasilnya selalu benar.
+4. Bandingkan performa versi mutex dengan versi atomic menggunakan `atomic_long` dan `atomic_fetch_add` dari `<stdatomic.h>`.
+5. Buat deadlock secara sengaja dengan dua thread dan dua mutex yang dikunci dalam urutan terbalik. Setelah program berhenti menunggu, perbaiki dengan menyamakan urutan lock.
+6. Jalankan versi race condition dengan `gcc -fsanitize=thread` dan baca laporan yang dihasilkan ThreadSanitizer.
+7. Implementasikan pola produsen-konsumen sederhana. Satu thread menambah item ke buffer bersama, satu thread mengambil item, dan akses ke buffer dilindungi mutex. Sebagai latihan lanjutan, gunakan condition variable.
+
+### Pertanyaan Refleksi
+
+1. Apa perbedaan utama thread dan proses dalam hal memori.
+2. Mengapa `counter++` dapat menyebabkan race condition meskipun terlihat seperti satu operasi.
+3. Apa yang membuat race condition lebih sulit di-debug dibanding bug biasa.
+4. Apa yang dimaksud dengan critical section dan mutual exclusion.
+5. Bagaimana mutex mencegah dua thread memasuki critical section secara bersamaan.
+6. Apa itu deadlock dan bagaimana urutan penguncian yang konsisten dapat mencegahnya.
+7. Mengapa meminimalkan data bersama merupakan prinsip desain yang baik untuk program konkuren.
+8. Mengapa `errno` harus bersifat thread-local pada program multi-thread.
+
+---
+
+Dengan bab ini, BAGIAN IV selesai. Kita telah membahas file dan I/O, error handling, proses, signal, IPC, serta thread.
+
+Bab 18 melanjutkan pembahasan ke networking level rendah dengan socket. Topiknya mencakup cara program berkomunikasi melalui jaringan, perbedaan TCP dan UDP, model client-server, serta peran socket sebagai file descriptor untuk komunikasi jaringan.
+

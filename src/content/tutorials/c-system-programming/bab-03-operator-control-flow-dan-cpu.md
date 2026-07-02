@@ -1,179 +1,166 @@
 ---
-title: "Bab 3 — Operator, Control Flow & Bagaimana CPU Mengeksekusinya"
-description: "Di Bab 2, kita membahas data: apa yang disimpan dan bagaimana nilainya direpresentasikan di memori. Sekarang kita membahas aksi: operator untuk menghitung, dan..."
-tags: [c, system-programming]
+title: "Bab 3 - Operator, Control Flow, dan Eksekusi CPU"
+description: "Control flow dalam C pada akhirnya diterjemahkan menjadi perbandingan, perubahan flag, dan lompatan ke alamat instruksi tertentu."
+tags: [c, systems-programming]
 order: 3
-updated: 2026-06-20
+updated: 2026-07-02
 ---
+> Control flow dalam C pada akhirnya diterjemahkan menjadi perbandingan, perubahan flag, dan lompatan ke alamat instruksi tertentu.
 
-> "Sebuah `if` bukan pertanyaan bagi CPU. Di level mesin, `if` berubah menjadi perbandingan nilai dan lompatan ke alamat instruksi tertentu jika kondisinya terpenuhi."
+Pada Bab 2, kita membahas data dan representasinya di memori. Pada bab ini, kita membahas aksi yang dilakukan terhadap data. Fokusnya adalah operator, percabangan, loop, dan bagaimana konsep tersebut dieksekusi oleh CPU.
 
-Di Bab 2, kita membahas *data*: apa yang disimpan dan bagaimana nilainya direpresentasikan di memori. Sekarang kita membahas *aksi*: operator untuk menghitung, dan control flow seperti `if`, `while`, dan `for` untuk mengatur urutan eksekusi.
-
-Kita tidak hanya melihat cara menulisnya di C. Di bab ini, kita juga melihat apa yang dilakukan CPU di balik layar. Dari sini konsep seperti register, instruction pointer, flags, dan branch mulai terasa nyata.
-
-Pegang satu ide utama sepanjang bab ini. **CPU adalah mesin yang sangat sederhana, tetapi sangat cepat. Ia terus mengulang siklus ambil instruksi, pahami instruksi, jalankan instruksi, lalu ambil instruksi berikutnya.** Semua `if`, loop, dan ekspresi rumit pada akhirnya berubah menjadi rangkaian instruksi sederhana.
+Tujuan bab ini bukan hanya memahami cara menulis `if`, `while`, atau `for`, tetapi juga memahami bentuk dasarnya di level mesin. Dengan begitu, konsep seperti register, instruction pointer, flags, dan branch akan menjadi lebih konkret.
 
 ---
 
-## 3.1 Model mental CPU: register, ALU, dan instruction pointer
+## 3.1 Komponen Dasar CPU
 
-Sebelum membahas operator, kita perlu mengenal beberapa komponen penting di dalam CPU.
+Sebelum membahas operator dan control flow, kita perlu mengenal beberapa komponen penting di dalam CPU.
 
-- **Register** — tempat penyimpanan sangat kecil dan sangat cepat **di dalam** CPU, bukan di RAM. Jumlahnya sedikit. Di x86-64, register umum antara lain `rax`, `rbx`, `rcx`, dan `rdx`. Ukurannya biasanya sebesar word, yaitu 8 byte di mesin 64-bit. CPU hampir tidak menghitung langsung di RAM. Data biasanya dibawa dulu ke register, dihitung, lalu jika perlu disimpan kembali ke RAM.
+- Register adalah penyimpanan kecil dan sangat cepat di dalam CPU. Pada x86-64, register umum meliputi `rax`, `rbx`, `rcx`, `rdx`, dan beberapa register lain. Operasi aritmetika biasanya dilakukan dengan data yang sudah berada di register.
+- ALU atau Arithmetic Logic Unit adalah bagian CPU yang melakukan operasi aritmetika dan logika, seperti penjumlahan, pengurangan, AND, OR, dan perbandingan.
+- Instruction Pointer adalah register khusus yang menyimpan alamat instruksi berikutnya yang akan dijalankan. Pada x86-64, register ini disebut `rip`.
+- Flags register menyimpan informasi tentang hasil operasi terakhir. Contohnya, Zero Flag menandakan hasil nol, sedangkan Sign Flag berkaitan dengan tanda hasil operasi.
 
-- **ALU (Arithmetic Logic Unit)** — bagian CPU yang melakukan operasi aritmetika dan logika, seperti tambah, kurang, AND, OR, perbandingan, dan sebagainya. ALU bekerja dengan nilai yang ada di register.
+CPU menjalankan instruksi secara berurutan, kecuali ada instruksi yang mengubah Instruction Pointer. Instruksi seperti jump dan branch digunakan untuk mengubah alur eksekusi ini.
 
-- **Instruction Pointer (IP / di x86-64: `rip`)** — register khusus yang menyimpan **alamat instruksi yang sedang atau akan dijalankan**. Register ini menentukan instruksi mana yang dibaca CPU berikutnya.
-
-- **Flags register** — kumpulan bit yang menyimpan informasi tentang hasil operasi terakhir. Misalnya **Zero Flag (ZF)** menyala jika hasil operasi terakhir adalah nol, dan **Sign Flag (SF)** menyala jika hasilnya negatif. Flags inilah yang membuat `if` dan lompatan bersyarat bisa bekerja.
-
-Bayangkan CPU seperti seseorang yang bekerja di meja kecil:
-
-- **Register** adalah beberapa kertas kecil di atas meja. Jumlahnya sedikit, tapi sangat cepat dipakai.
-- **RAM** adalah lemari arsip besar di seberang ruangan. Kapasitasnya besar, tapi lebih lambat diakses.
-- **ALU** adalah kalkulator di meja.
-- **Instruction Pointer** adalah penunjuk ke baris instruksi yang sedang dibaca.
-- **Flags** adalah catatan kecil tentang hasil operasi terakhir, misalnya nol, negatif, lebih besar, dan sebagainya.
-
-CPU tidak menghitung langsung di lemari arsip. Nilai perlu dibawa dulu ke register, baru dihitung oleh ALU. Karena itu, instruksi seperti `mov` muncul di mana-mana dalam assembly: tugasnya memindahkan data antara RAM dan register.
+Register penting karena CPU tidak selalu melakukan operasi langsung pada RAM. Data sering perlu dimuat ke register, diproses, lalu disimpan kembali jika diperlukan. Itulah sebabnya instruksi seperti `mov` sering muncul dalam assembly.
 
 ---
 
-## 3.2 Siklus dasar CPU: fetch-decode-execute
+## 3.2 Siklus Dasar CPU
 
-CPU menjalankan siklus yang sama terus-menerus, miliaran kali per detik.
+Secara sederhana, CPU menjalankan program melalui siklus berikut.
 
-1. **Fetch** — ambil instruksi dari alamat yang ditunjuk Instruction Pointer.
-2. **Decode** — pahami jenis instruksinya, misalnya tambah, pindah data, lompat, dan seterusnya.
-3. **Execute** — jalankan instruksi tersebut, misalnya memakai ALU atau memindahkan data.
-4. **Majukan IP** ke instruksi berikutnya, kecuali instruksi yang dijalankan mengubah IP, seperti jump.
+1. Fetch mengambil instruksi dari alamat yang ditunjuk Instruction Pointer.
+2. Decode menerjemahkan instruksi agar CPU mengetahui operasi yang harus dilakukan.
+3. Execute menjalankan instruksi tersebut.
+4. Instruction Pointer diarahkan ke instruksi berikutnya.
 
-Poin keempat adalah kunci. Secara default, eksekusi berjalan lurus ke instruksi berikutnya. Satu-satunya cara membelokkan alur adalah dengan instruksi yang **mengubah Instruction Pointer**. Instruksi seperti itu disebut **branch** atau **jump**.
+Pada alur normal, Instruction Pointer maju ke instruksi selanjutnya. Namun, instruksi jump dapat mengubahnya ke alamat lain. Inilah dasar dari percabangan, loop, pemanggilan fungsi, dan banyak bentuk control flow lain.
 
-Semua control flow, termasuk `if`, `while`, `for`, dan pemanggilan fungsi, pada akhirnya dibangun dari perubahan Instruction Pointer.
+Dengan model ini, `if`, `while`, dan `for` dapat dipahami sebagai cara terstruktur untuk menghasilkan instruksi perbandingan dan lompatan.
 
 ---
 
-## 3.3 Operator aritmetika & cara CPU menghitungnya
+## 3.3 Operator Aritmetika
 
-Operator aritmetika dasar di C adalah `+`, `-`, `*`, `/`, dan `%` (modulo / sisa bagi).
+Operator aritmetika dasar dalam C meliputi `+`, `-`, `*`, `/`, dan `%`.
 
 ```c
 #include <stdio.h>
 
 int main(void) {
     int a = 17, b = 5;
-    printf("a + b = %d\n", a + b);   // 22
-    printf("a - b = %d\n", a - b);   // 12
-    printf("a * b = %d\n", a * b);   // 85
-    printf("a / b = %d\n", a / b);   // 3  (integer division, sisa dibuang)
-    printf("a %% b = %d\n", a % b);  // 2  (sisa: 17 = 5*3 + 2)
+    printf("a + b = %d\n", a + b);
+    printf("a - b = %d\n", a - b);
+    printf("a * b = %d\n", a * b);
+    printf("a / b = %d\n", a / b);
+    printf("a %% b = %d\n", a % b);
     return 0;
 }
 ```
 
-Ingat dari Bab 2 bahwa `int / int` menghasilkan integer, sehingga bagian pecahan dibuang. Di `printf`, `%%` dipakai untuk mencetak tanda `%` literal.
+Jika `a` dan `b` bertipe `int`, maka `a / b` melakukan pembagian integer. Bagian pecahan dibuang. Untuk mencetak tanda `%` literal dalam `printf`, digunakan `%%`.
 
-Sekarang lihat apa yang terjadi di CPU untuk `a + b`. Anggap `a` dan `b` masih berada di memori. Assembly-nya kira-kira seperti ini:
+Pada level assembly, operasi seperti `a + b` biasanya melibatkan pemindahan data ke register, lalu operasi aritmetika.
 
 ```asm
-mov   eax, [a]      ; salin nilai a dari RAM ke register eax
-add   eax, [b]      ; eax = eax + b   (ALU bekerja di sini)
-                    ; hasilnya sekarang ada di eax
+mov   eax, [a]
+add   eax, [b]
 ```
 
-`mov` membawa nilai dari RAM ke register. `add` menyuruh ALU menjumlahkan nilai. Alurnya sederhana: CPU mengambil data ke tempat kerjanya, menghitungnya, lalu menyimpan atau memakai hasilnya.
+Instruksi `mov` memuat nilai ke register, sedangkan `add` melakukan penjumlahan. Hasilnya berada di register yang digunakan sebagai tujuan operasi.
 
-Operator `%` atau modulo sering dipakai dalam system programming. Contohnya untuk mengecek genap/ganjil (`x % 2`), membuat indeks berputar dalam circular buffer (`i % size`), dan berbagai kasus lain yang membutuhkan sisa pembagian.
+Operator `%` menghasilkan sisa pembagian. Operator ini sering digunakan untuk memeriksa genap atau ganjil, membatasi indeks pada rentang tertentu, dan membangun struktur seperti circular buffer.
 
 ---
 
-## 3.4 Operator bitwise: berbicara langsung dalam bit
+## 3.4 Operator Bitwise
 
-Operator bitwise jarang dipakai di kode aplikasi biasa, tetapi sangat sering muncul di system programming. Operator ini bekerja pada level bit individual.
+Operator bitwise bekerja pada level bit individual. Operator ini sangat penting dalam system programming karena banyak data sistem direpresentasikan sebagai bit dan flag.
 
 | Operator | Nama | Efek |
 |----------|------|------|
-| `&` | AND | bit hasil 1 kalau **kedua** bit 1 |
-| `\|` | OR | bit hasil 1 kalau **salah satu** bit 1 |
-| `^` | XOR | bit hasil 1 kalau **berbeda** |
-| `~` | NOT | balik semua bit |
-| `<<` | left shift | geser bit ke kiri (x 2 per geseran) |
-| `>>` | right shift | geser bit ke kanan (/ 2 per geseran) |
+| `&` | AND | Bit hasil bernilai 1 jika kedua bit bernilai 1 |
+| `\|` | OR | Bit hasil bernilai 1 jika salah satu bit bernilai 1 |
+| `^` | XOR | Bit hasil bernilai 1 jika kedua bit berbeda |
+| `~` | NOT | Membalik semua bit |
+| `<<` | Left shift | Menggeser bit ke kiri |
+| `>>` | Right shift | Menggeser bit ke kanan |
 
 ```c
 #include <stdio.h>
 
 int main(void) {
-    unsigned char a = 0b1100;   // 12
-    unsigned char b = 0b1010;   // 10
+    unsigned char a = 0b1100;
+    unsigned char b = 0b1010;
 
-    printf("a & b = %d\n", a & b);   // 0b1000 = 8
-    printf("a | b = %d\n", a | b);   // 0b1110 = 14
-    printf("a ^ b = %d\n", a ^ b);   // 0b0110 = 6
-    printf("a << 1 = %d\n", a << 1); // 0b11000 = 24 (sama dengan a * 2)
-    printf("a >> 1 = %d\n", a >> 1); // 0b0110 = 6  (sama dengan a / 2)
+    printf("a & b = %d\n", a & b);
+    printf("a | b = %d\n", a | b);
+    printf("a ^ b = %d\n", a ^ b);
+    printf("a << 1 = %d\n", a << 1);
+    printf("a >> 1 = %d\n", a >> 1);
     return 0;
 }
 ```
 
-### Kenapa ini penting buat system programming?
+Operator bitwise sering digunakan untuk bitmask. Satu nilai integer dapat menyimpan beberapa flag, dan setiap bit merepresentasikan satu kondisi.
 
-1. **Flags / bitmask.** Satu `int` sering dipakai untuk menyimpan banyak opsi on/off sekaligus. Ini hemat dan mudah diproses. Contoh nyatanya muncul saat membuka file dengan `open()`. Kamu bisa menulis `O_RDONLY | O_CREAT | O_TRUNC`, yang berarti beberapa flag digabung menjadi satu angka dengan OR. Kernel kemudian mengecek tiap bit dengan AND.
+```c
+#define FLAG_BACA   (1 << 0)
+#define FLAG_TULIS  (1 << 1)
+#define FLAG_EKSEK  (1 << 2)
 
-   ```c
-   #define FLAG_BACA   (1 << 0)   // 0b001
-   #define FLAG_TULIS  (1 << 1)   // 0b010
-   #define FLAG_EKSEK  (1 << 2)   // 0b100
+int izin = FLAG_BACA | FLAG_TULIS;
 
-   int izin = FLAG_BACA | FLAG_TULIS;     // gabung: 0b011
+if (izin & FLAG_TULIS)
+    printf("boleh menulis\n");
+```
 
-   if (izin & FLAG_TULIS)                  // cek bit "tulis"
-       printf("boleh menulis\n");
-   ```
+Operator `|` digunakan untuk menggabungkan flag, sedangkan `&` digunakan untuk memeriksa apakah flag tertentu aktif. Untuk mematikan flag, pola yang umum digunakan adalah `nilai &= ~FLAG`.
 
-2. **Manipulasi hardware register.** Di embedded, kamu sering harus menyalakan atau mematikan bit tertentu di register hardware. Misalnya `REG |= (1 << 3);` untuk menyalakan bit ke-3, dan `REG &= ~(1 << 3);` untuk mematikannya.
+Pada pemrograman embedded, pola yang sama digunakan untuk membaca atau mengubah bit tertentu pada register hardware. Pada level sistem operasi, bitmask juga sering muncul pada permission, mode file, opsi konfigurasi, dan status internal.
 
-3. **Efisiensi.** `x << 1` sama dengan mengalikan `x` dengan 2, dan operasi shift biasanya lebih murah daripada perkalian umum. Compiler modern sering melakukan optimasi seperti ini secara otomatis, tetapi memahami konsepnya tetap berguna.
-
-Bitmask bisa dibayangkan seperti deretan saklar. Setiap bit adalah satu saklar. Operator `|` menyalakan bit tertentu, `& ~` mematikan bit tertentu, dan `&` mengecek apakah bit tertentu menyala. Satu byte berarti delapan saklar dalam satu angka.
+Shift kiri pada integer unsigned sering setara dengan perkalian oleh 2 untuk setiap geseran. Shift kanan sering setara dengan pembagian oleh 2 untuk setiap geseran. Namun, detail perilaku shift pada signed integer perlu diperlakukan hati-hati, terutama jika melibatkan nilai negatif.
 
 ---
 
-## 3.5 Operator perbandingan & logika — dan kelahiran `if`
+## 3.5 Operator Perbandingan dan Logika
 
-Operator perbandingan (`==`, `!=`, `<`, `>`, `<=`, `>=`) menghasilkan nilai boolean. C klasik tidak punya tipe `bool` asli sampai C99 menambahkan `<stdbool.h>`. Namun aturan dasarnya tetap sederhana.
+Operator perbandingan meliputi `==`, `!=`, `<`, `>`, `<=`, dan `>=`. Hasilnya digunakan sebagai nilai kebenaran.
 
-> **`0` berarti false. Nilai selain nol berarti true.**
-
-```c
-printf("%d\n", 5 > 3);    // 1  (true)
-printf("%d\n", 5 < 3);    // 0  (false)
-printf("%d\n", 5 == 5);   // 1
-```
-
-Operator logika adalah `&&` (AND), `||` (OR), dan `!` (NOT). Dua operator pertama punya sifat penting bernama **short-circuit evaluation**:
-
-- `A && B` — jika `A` sudah false, `B` **tidak dievaluasi**, karena hasil akhirnya pasti false.
-- `A || B` — jika `A` sudah true, `B` **tidak dievaluasi**, karena hasil akhirnya pasti true.
-
-Ini bukan hanya optimasi. Short-circuit sering dipakai untuk menulis kode yang aman:
+Dalam C, nilai 0 dianggap false. Nilai selain 0 dianggap true.
 
 ```c
-// kalau p NULL, bagian setelah && tidak dijalankan -> aman dari crash
-if (p != NULL && *p > 0) { ... }
+printf("%d\n", 5 > 3);
+printf("%d\n", 5 < 3);
+printf("%d\n", 5 == 5);
 ```
 
-Kalau urutannya dibalik menjadi `*p > 0 && p != NULL`, program bisa crash, karena `*p` dijalankan lebih dulu saat `p` masih mungkin `NULL`. Dereference dan `NULL` akan dibahas tuntas di Bab 6, tetapi pola ini penting dikenali sejak sekarang.
+Operator logika meliputi `&&`, `||`, dan `!`. Operator `&&` dan `||` memiliki sifat short-circuit evaluation.
 
-> **Jangan keliru `=` dan `==`.** `=` adalah **assignment**, yaitu memberi nilai. `==` adalah **perbandingan**. `if (x = 5)` legal di C, tetapi hampir pasti bug. Baris itu mengisi `x` dengan 5, lalu hasil assignment bernilai 5, yang dianggap true. Akibatnya, blok `if` selalu berjalan. Compiler dengan `-Wall` biasanya akan memperingatkanmu.
+Pada `A && B`, jika `A` false, maka `B` tidak dievaluasi karena hasil akhirnya sudah pasti false.
+
+Pada `A || B`, jika `A` true, maka `B` tidak dievaluasi karena hasil akhirnya sudah pasti true.
+
+Sifat ini sering digunakan untuk menjaga kode tetap aman.
+
+```c
+if (p != NULL && *p > 0) {
+    /* gunakan *p */
+}
+```
+
+Pada contoh tersebut, `*p` hanya dievaluasi jika `p` tidak bernilai `NULL`. Jika urutannya dibalik, program dapat mencoba melakukan dereference terhadap pointer `NULL`.
+
+Perbedaan antara `=` dan `==` juga harus diperhatikan. Operator `=` digunakan untuk assignment, sedangkan `==` digunakan untuk perbandingan. Ekspresi seperti `if (x = 5)` valid secara sintaks dalam C, tetapi biasanya merupakan bug karena nilai `x` diubah dan hasil assignment digunakan sebagai kondisi.
 
 ---
 
-## 3.6 `if`: di balik layar, ini adalah lompatan bersyarat
+## 3.6 `if` sebagai Lompatan Bersyarat
 
-Sekarang masuk ke inti bab ini. Perhatikan `if` sederhana:
+Perhatikan contoh berikut.
 
 ```c
 int x = 7;
@@ -184,45 +171,35 @@ if (x > 5) {
 }
 ```
 
-CPU tidak punya konsep `if` seperti yang kita lihat di C. Yang dimiliki CPU adalah instruksi **compare** seperti `cmp`, dan instruksi **conditional jump** seperti `jle`, `jg`, dan sejenisnya. Assembly-nya kira-kira seperti ini, disederhanakan:
+CPU tidak menjalankan konsep `if` secara langsung. Compiler menerjemahkannya menjadi instruksi perbandingan dan lompatan bersyarat.
+
+Contoh assembly yang disederhanakan dapat terlihat seperti berikut.
 
 ```asm
-        cmp   [x], 5          ; bandingkan x dengan 5 (mempengaruhi flags)
-        jle   .blok_else      ; "Jump if Less or Equal": kalau x <= 5, lompat ke else
-        ; --- blok if ---
+        cmp   [x], 5
+        jle   .blok_else
         lea   rdi, .str_besar
-        call  puts            ; printf("besar")
-        jmp   .selesai        ; lompati blok else
+        call  puts
+        jmp   .selesai
 .blok_else:
         lea   rdi, .str_kecil
-        call  puts            ; printf("kecil")
+        call  puts
 .selesai:
-        ; ... lanjut program
 ```
 
-Alurnya bisa dibaca langkah demi langkah.
+Instruksi `cmp` membandingkan nilai dan mengubah flags register. Instruksi `jle` membaca flags tersebut dan melompat ke `.blok_else` jika kondisi less or equal terpenuhi. Jika kondisi tidak terpenuhi, eksekusi berjalan ke instruksi berikutnya.
 
-1. **`cmp [x], 5`** — CPU membandingkan `x` dengan 5. Secara internal, ini mirip menghitung `x - 5`, tetapi hasilnya tidak disimpan sebagai nilai biasa. Yang penting adalah efeknya terhadap **flags**.
-2. **`jle .blok_else`** — ini instruksi lompat bersyarat. CPU membaca flags hasil `cmp`. Jika kondisi "less or equal" terpenuhi, Instruction Pointer diubah ke alamat `.blok_else`. Jika tidak, eksekusi lanjut lurus ke instruksi berikutnya, yaitu blok `if`.
-3. Setelah blok `if` selesai, **`jmp .selesai`** dipakai untuk melompati blok `else`. Tanpa lompatan ini, blok `else` juga akan ikut dijalankan.
+Setelah blok `if` selesai, instruksi `jmp .selesai` digunakan agar eksekusi tidak masuk ke blok `else`.
 
-Jadi, `if/else` pada level CPU adalah kombinasi dari `cmp` yang mengatur flags dan conditional jump yang mengubah Instruction Pointer berdasarkan flags. Percabangan berarti CPU memilih alamat instruksi berikutnya.
+Dengan demikian, `if` dapat dipahami sebagai kombinasi antara perbandingan, perubahan flags, dan perubahan Instruction Pointer.
 
-Coba lihat sendiri. Tulis kode `if` di atas, lalu jalankan:
-
-```bash
-gcc -S -O0 file.c
-```
-
-Buka file `.s`, lalu cari `cmp` dan instruksi yang diawali `j`, seperti `jle`, `jg`, `je`, atau `jne`. Setelah melihat pola ini, control flow di C akan terasa jauh lebih konkret.
-
-> **Catatan performa (branch prediction):** karena lompatan bersyarat sangat sering terjadi, CPU modern memiliki **branch predictor**. CPU mencoba menebak cabang mana yang akan diambil agar bisa mulai mengerjakan instruksi berikutnya lebih awal lewat pipeline. Jika tebakannya benar, eksekusi lebih cepat. Jika salah (**branch misprediction**), CPU harus membuang sebagian kerja dan mengulang dari jalur yang benar. Karena itu, pola percabangan bisa memengaruhi performa. Kamu belum perlu mendalami ini sekarang, tetapi konsepnya penting untuk nanti.
+CPU modern juga memiliki branch predictor. Komponen ini mencoba memperkirakan cabang mana yang akan diambil agar pipeline CPU tetap terisi. Jika prediksi salah, CPU perlu membuang sebagian pekerjaan yang sudah dimulai. Detail ini tidak perlu dikuasai pada tahap awal, tetapi penting diketahui bahwa pola percabangan dapat memengaruhi performa.
 
 ---
 
-## 3.7 `switch`: tabel lompatan
+## 3.7 `switch`
 
-`switch` adalah cara rapi untuk menulis banyak cabang berdasarkan satu nilai:
+`switch` digunakan ketika satu nilai dibandingkan dengan beberapa kemungkinan.
 
 ```c
 #include <stdio.h>
@@ -235,7 +212,7 @@ int main(void) {
             break;
         case 2:
             printf("dua\n");
-            break;          // <- penting; kalau lupa akan "jatuh" ke case berikutnya
+            break;
         case 3:
             printf("tiga\n");
             break;
@@ -246,17 +223,15 @@ int main(void) {
 }
 ```
 
-Jebakan klasik di `switch` adalah `break`. Kalau kamu lupa menulis `break`, eksekusi akan **fall through**, yaitu lanjut menjalankan `case` di bawahnya. Kadang ini memang disengaja, tetapi lebih sering menjadi bug. Compiler dengan `-Wall` bisa membantu memberi peringatan.
+`break` digunakan untuk keluar dari `switch`. Jika `break` tidak ditulis, eksekusi akan berlanjut ke `case` berikutnya. Perilaku ini disebut fallthrough. Fallthrough kadang digunakan secara sengaja, tetapi pada banyak kasus terjadi karena kelalaian.
 
-Di balik layar, jika nilai `case` rapat seperti 1, 2, 3, dan seterusnya, compiler sering membuat **jump table**. Jump table adalah array berisi alamat instruksi. Nilai `pilihan` dipakai sebagai indeks untuk langsung lompat ke alamat yang sesuai. Pola ini O(1), lebih cepat daripada rantai `if-else` panjang yang harus diperiksa satu per satu.
-
-Untuk nilai `case` yang jarang atau acak, compiler bisa memilih strategi lain, misalnya rantai perbandingan. Keputusan itu diambil compiler. Tugasmu adalah menulis `switch` yang jelas.
+Compiler dapat menerjemahkan `switch` dengan beberapa cara. Jika nilai `case` rapat dan jumlahnya cukup banyak, compiler dapat membuat jump table. Jump table adalah tabel alamat yang memungkinkan program langsung melompat ke blok yang sesuai. Jika nilai `case` jarang atau tidak berurutan, compiler dapat menggunakan rangkaian perbandingan.
 
 ---
 
-## 3.8 Loop: lompat ke belakang
+## 3.8 Loop
 
-Loop juga dibangun dari jump. Bedanya, loop melakukan lompatan ke **belakang**, ke alamat instruksi yang sudah dilewati, agar eksekusi bisa mengulang.
+Loop juga diterjemahkan menjadi kombinasi perbandingan dan jump. Perbedaannya, jump sering mengarah kembali ke bagian sebelumnya dari kode untuk mengulang eksekusi.
 
 ### `while`
 
@@ -268,24 +243,24 @@ while (i < 3) {
 }
 ```
 
-Assembly-nya, disederhanakan, kira-kira seperti ini:
+Assembly yang disederhanakan dapat terlihat seperti berikut.
 
 ```asm
         mov   [i], 0
-.cek:   cmp   [i], 3
-        jge   .selesai      ; kalau i >= 3, keluar loop
-        ; --- body ---
-        ... printf ...
-        add   [i], 1        ; i++
-        jmp   .cek          ; LOMPAT KE BELAKANG, ulangi pengecekan
+.cek:
+        cmp   [i], 3
+        jge   .selesai
+        ; body loop
+        add   [i], 1
+        jmp   .cek
 .selesai:
 ```
 
-Instruksi `jmp .cek` di akhir membuat loop berulang. CPU kembali ke bagian pengecekan kondisi. Jadi loop adalah gabungan conditional branch untuk keluar dan unconditional branch untuk mengulang.
+Instruksi `jge .selesai` digunakan untuk keluar dari loop jika kondisi tidak lagi terpenuhi. Instruksi `jmp .cek` membawa eksekusi kembali ke pengecekan kondisi.
 
 ### `for`
 
-`for` adalah bentuk yang lebih ringkas untuk pola loop yang punya inisialisasi, kondisi, dan update.
+`for` dapat dipahami sebagai bentuk ringkas dari inisialisasi, pengecekan kondisi, body, dan update.
 
 ```c
 for (inisialisasi; kondisi; update) {
@@ -293,7 +268,7 @@ for (inisialisasi; kondisi; update) {
 }
 ```
 
-Secara konsep, bentuk itu setara dengan kode berikut.
+Bentuk tersebut setara secara konseptual dengan struktur berikut.
 
 ```c
 inisialisasi;
@@ -303,7 +278,7 @@ while (kondisi) {
 }
 ```
 
-Berikut contoh `for` yang mencetak angka 0 sampai 2.
+Contoh penggunaan `for`.
 
 ```c
 for (int i = 0; i < 3; i++) {
@@ -311,110 +286,129 @@ for (int i = 0; i < 3; i++) {
 }
 ```
 
-Pakai `for` saat jumlah iterasi jelas atau mudah dihitung. Pakai `while` saat berhenti berdasarkan kondisi yang belum tentu diketahui sejak awal. Pada level assembly, keduanya tetap menjadi pola jump yang mirip.
+Gunakan `for` ketika jumlah iterasi atau pola update terlihat jelas. Gunakan `while` ketika perulangan lebih bergantung pada kondisi yang tidak selalu diketahui jumlah iterasinya sejak awal.
 
 ### `do-while`
 
-`do-while` mengecek kondisi **di akhir**, sehingga body dijamin berjalan **minimal sekali**.
+`do-while` mengevaluasi kondisi di akhir. Karena itu, body selalu dijalankan setidaknya satu kali.
 
 ```c
 int n;
 do {
-    printf("Masukkan angka positif: ");
+    printf("Masukkan angka positif ");
     scanf("%d", &n);
 } while (n <= 0);
 ```
 
 ### `break` dan `continue`
 
-- **`break`** — keluar paksa dari loop, yaitu lompat ke instruksi setelah loop.
-- **`continue`** — melewati sisa body dan langsung lanjut ke iterasi berikutnya, yaitu lompat ke bagian update atau pengecekan kondisi.
-
-Keduanya juga hanya bentuk lain dari jump ke alamat tertentu.
+`break` keluar dari loop. `continue` melewati sisa body dan langsung menuju iterasi berikutnya.
 
 ```c
 for (int i = 0; i < 10; i++) {
-    if (i == 5) break;       // berhenti total saat i == 5
-    if (i % 2 == 0) continue; // lewati angka genap
-    printf("%d ", i);         // cetak: 1 3
+    if (i == 5) break;
+    if (i % 2 == 0) continue;
+    printf("%d ", i);
 }
 ```
 
+Pada level mesin, keduanya diterjemahkan menjadi jump ke lokasi tertentu dalam struktur loop.
+
 ---
 
-## 3.9 Operator-operator praktis lain
+## 3.9 Operator Praktis Lain
 
-**Increment/decrement** adalah operator seperti `i++` (post-increment) dan `++i` (pre-increment). Keduanya menambah `i` dengan 1, tetapi nilai ekspresinya berbeda. `i++` menghasilkan nilai **lama** dulu, baru menambah. `++i` menambah dulu, lalu menghasilkan nilai baru.
+Increment dan decrement digunakan untuk menambah atau mengurangi nilai sebesar 1. Bentuk `i++` disebut post-increment, sedangkan `++i` disebut pre-increment.
 
 ```c
 int i = 5;
-printf("%d\n", i++);   // cetak 5, lalu i jadi 6
-printf("%d\n", ++i);   // i jadi 7, lalu cetak 7
+printf("%d\n", i++);
+printf("%d\n", ++i);
 ```
 
-Jika dipakai sebagai statement berdiri sendiri seperti `i++;`, keduanya sama saja.
+Pada `i++`, nilai ekspresi adalah nilai lama, lalu `i` dinaikkan. Pada `++i`, nilai dinaikkan terlebih dahulu, lalu nilai baru menjadi hasil ekspresi. Jika digunakan sebagai statement berdiri sendiri, `i++` dan `++i` memiliki efek akhir yang sama.
 
-**Compound assignment** mencakup operator seperti `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, dan `>>=`. Misalnya, `x += 5` sama dengan `x = x + 5`, tetapi lebih ringkas dan sering lebih jelas.
-
-**Ternary operator** `? :` adalah bentuk `if-else` sebagai ekspresi.
+Compound assignment seperti `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, dan `>>=` menggabungkan operasi dengan assignment.
 
 ```c
-int max = (a > b) ? a : b;   // kalau a>b ambil a, kalau tidak ambil b
+x += 5;
 ```
 
-Operator ini cocok untuk pilihan sederhana. Hindari memakainya untuk logika berlapis, karena cepat menjadi sulit dibaca.
+Pernyataan tersebut setara dengan `x = x + 5`, tetapi lebih ringkas dan sering lebih jelas.
 
----
-
-## 3.10 Operator precedence: siapa duluan
-
-Seperti matematika, operator di C punya **precedence** atau prioritas. `*` dan `/` dikerjakan sebelum `+` dan `-`. Namun C punya banyak operator, dan beberapa aturan precedence tidak selalu intuitif, terutama saat bitwise bercampur dengan perbandingan.
+Operator ternary memilih salah satu dari dua ekspresi berdasarkan kondisi.
 
 ```c
-int x = 2 + 3 * 4;        // 14, bukan 20 (perkalian duluan)
-
-// JEBAKAN: & punya precedence LEBIH RENDAH dari ==
-if (a & MASK == 0) { }    // dibaca sebagai: a & (MASK == 0)  <- hampir pasti BUKAN maumu!
-if ((a & MASK) == 0) { }  // ini yang benar
+int max = (a > b) ? a : b;
 ```
 
-Jangan mengandalkan hafalan seluruh tabel precedence. Kalau ada keraguan, pakai tanda kurung `()`. Kurung membuat maksudmu eksplisit bagi compiler dan bagi manusia yang membaca kode, termasuk kamu sendiri beberapa bulan kemudian.
+Operator ini cocok untuk pilihan sederhana. Untuk logika bercabang yang panjang, `if-else` biasanya lebih mudah dibaca.
 
 ---
 
-## 3.11 Rangkuman model mental
+## 3.10 Precedence Operator
 
-1. **CPU menjalankan siklus fetch-decode-execute.** Secara default, eksekusi berjalan lurus ke instruksi berikutnya, kecuali ada **jump/branch**.
-2. **Register** adalah penyimpanan sangat cepat di dalam CPU. Perhitungan dilakukan di register lewat **ALU**, bukan langsung di RAM. Instruksi seperti `mov` memindahkan data antara RAM dan register.
-3. **`if`** adalah kombinasi `cmp` untuk mengatur flags dan **conditional jump** untuk mengubah Instruction Pointer berdasarkan flags.
-4. **Loop** adalah jump ke belakang untuk mengulang.
-5. **Operator bitwise** (`& | ^ ~ << >>`) adalah alat penting dalam system programming untuk flag/bitmask, manipulasi register hardware, dan efisiensi.
-6. **`0` berarti false, nilai selain nol berarti true.** Hati-hati membedakan `=` dan `==`.
-7. **Short-circuit** pada `&&` dan `||` bisa dipakai untuk kode aman, misalnya mengecek `NULL` sebelum dereference.
-8. Jika ragu tentang precedence, **pakai kurung**.
+Operator dalam C memiliki prioritas atau precedence. Perkalian dan pembagian dievaluasi sebelum penjumlahan dan pengurangan. Namun, beberapa operator lain memiliki aturan yang mudah disalahpahami.
 
----
+```c
+int x = 2 + 3 * 4;
+```
 
-## 3.12 Latihan & Pertanyaan Refleksi
+Nilai `x` adalah 14 karena perkalian dievaluasi lebih dulu.
 
-**Latihan praktik:**
+Contoh yang sering menimbulkan bug adalah kombinasi bitwise AND dengan perbandingan.
 
-1. Tulis kode `if (x > 5) {...} else {...}`, compile dengan `gcc -S -O0`, dan buka `.s`-nya. Temukan instruksi `cmp` dan instruksi jump-nya. Cabang mana yang "lurus" dan mana yang "dilompati"?
-2. Tulis fungsi yang mengecek apakah suatu `int` genap atau ganjil **tanpa** `%`, hanya dengan bitwise. Petunjuk: cek bit paling kanan dengan `& 1`.
-3. Buat sistem flag pakai `#define` dan bitmask seperti contoh `FLAG_BACA` dan seterusnya. Gabungkan beberapa flag dengan `|`, lalu cek satu per satu dengan `&`. Tambahkan kode untuk **mematikan** satu flag dengan `&= ~`.
-4. Tulis program yang sengaja fall through di `switch` dengan menghapus satu `break`. Amati outputnya. Lalu compile dengan `-Wall`. Apakah ada warning?
-5. Bandingkan `for`, `while`, dan `do-while` untuk mencetak 1-5. Lalu ubah jadi mencetak mundur 5-1.
-6. Tulis `int x = 5; if (x = 0) printf("A"); else printf("B");`. Apa yang tercetak, dan kenapa? Compile dengan `-Wall`. Apa kata compiler?
+```c
+if (a & MASK == 0) { }
+if ((a & MASK) == 0) { }
+```
 
-**Pertanyaan refleksi:**
+Bentuk pertama dibaca sebagai `a & (MASK == 0)`, bukan `(a & MASK) == 0`. Bentuk kedua lebih jelas dan sesuai dengan maksud umum pemeriksaan bitmask.
 
-1. Kenapa CPU butuh register, padahal sudah ada RAM yang jauh lebih besar?
-2. Dengan kata-katamu sendiri, bagaimana sebuah `if` menjadi lompatan? Apa peran flags?
-3. Apa itu short-circuit evaluation, dan bagaimana ia bisa mencegah crash saat bekerja dengan pointer?
-4. Kapan kamu memilih `while` daripada `for`? Kapan `do-while`?
-5. Kenapa `&` punya precedence lebih rendah dari `==`, dan kenapa ini sering jadi sumber bug? Bagaimana cara amannya?
-6. Apa itu branch misprediction, dan kenapa pola percabangan bisa memengaruhi kecepatan program?
+Jangan mengandalkan ingatan terhadap seluruh tabel precedence. Gunakan tanda kurung ketika ekspresi melibatkan beberapa jenis operator atau ketika maksudnya perlu dibuat eksplisit.
 
 ---
 
-Di Bab 4, kita masuk ke salah satu topik yang paling penting dalam C: **functions dan stack**. Kita akan melihat apa yang terjadi saat sebuah fungsi dipanggil, di mana variabel lokal disimpan, apa itu return address, dan kenapa recursion yang terlalu dalam bisa menyebabkan **stack overflow**.
+## 3.11 Rangkuman Model Mental
+
+Beberapa gagasan utama dari bab ini perlu diingat.
+
+1. CPU menjalankan instruksi melalui siklus fetch, decode, dan execute.
+2. Instruction Pointer menentukan instruksi berikutnya yang dijalankan.
+3. Register adalah tempat penyimpanan cepat di dalam CPU, dan banyak operasi dilakukan dengan data yang berada di register.
+4. `if` diterjemahkan menjadi perbandingan, perubahan flags, dan lompatan bersyarat.
+5. Loop diterjemahkan menjadi perbandingan dan jump yang kembali ke bagian sebelumnya.
+6. Operator bitwise penting untuk flag, bitmask, register hardware, dan data sistem.
+7. Nilai 0 berarti false, sedangkan nilai selain 0 berarti true.
+8. Short-circuit evaluation pada `&&` dan `||` dapat digunakan untuk menghindari evaluasi yang tidak aman.
+9. Gunakan tanda kurung ketika precedence operator dapat menimbulkan ambiguitas.
+
+---
+
+## 3.12 Latihan dan Pertanyaan Refleksi
+
+Kerjakan latihan berikut dengan mengetik dan menjalankan programnya sendiri.
+
+### Latihan Praktik
+
+1. Tulis kode `if (x > 5) { ... } else { ... }`, kompilasi dengan `gcc -S -O0`, lalu buka file assembly yang dihasilkan. Temukan instruksi `cmp` dan instruksi jump.
+2. Tulis fungsi untuk mengecek apakah suatu `int` genap atau ganjil tanpa menggunakan `%`. Gunakan bitwise AND dengan `1`.
+3. Buat sistem flag menggunakan `#define` dan bitmask. Gabungkan beberapa flag dengan `|`, periksa flag dengan `&`, lalu matikan salah satu flag dengan `&= ~FLAG`.
+4. Buat contoh `switch` tanpa salah satu `break`. Amati outputnya, lalu kompilasi dengan `-Wall` untuk melihat apakah compiler memberi warning.
+5. Gunakan `for`, `while`, dan `do-while` untuk mencetak angka 1 sampai 5. Setelah itu, ubah program agar mencetak angka 5 sampai 1.
+6. Tulis `int x = 5; if (x = 0) printf("A"); else printf("B");`. Amati outputnya dan periksa warning compiler dengan `-Wall`.
+
+### Pertanyaan Refleksi
+
+1. Mengapa CPU membutuhkan register meskipun RAM memiliki kapasitas jauh lebih besar?
+2. Bagaimana sebuah `if` diterjemahkan menjadi instruksi perbandingan dan lompatan?
+3. Apa peran flags register dalam conditional jump?
+4. Bagaimana short-circuit evaluation dapat mencegah kesalahan saat bekerja dengan pointer?
+5. Kapan `while` lebih sesuai daripada `for`?
+6. Mengapa precedence operator dapat menjadi sumber bug pada ekspresi bitwise?
+7. Apa itu branch misprediction dan mengapa pola percabangan dapat memengaruhi performa?
+
+---
+
+Sampai di sini, kita sudah membahas operator, control flow, dan hubungannya dengan eksekusi CPU. Pada bab berikutnya, kita akan membahas function dan stack, termasuk pemanggilan fungsi, variabel lokal, return address, dan stack overflow.
+
